@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
 namespace KeelMatrix.ForwardTrust.Tests;
@@ -24,14 +25,25 @@ internal sealed class TestHostHarness : IAsyncDisposable
         Action<ForwardedHeadersOptions> configureOptions,
         CancellationToken cancellationToken = default)
     {
+        return await StartAsync(configureOptions, null, null, cancellationToken);
+    }
+
+    public static async Task<TestHostHarness> StartAsync(
+        Action<ForwardedHeadersOptions> configureOptions,
+        Action<IServiceCollection>? configureServices,
+        Action<IApplicationBuilder>? configurePipeline,
+        CancellationToken cancellationToken = default)
+    {
         var host = new HostBuilder()
             .ConfigureWebHost(webHost => webHost
                 .UseTestServer()
+                .ConfigureServices(services => configureServices?.Invoke(services))
                 .Configure(app =>
                 {
                     var options = new ForwardedHeadersOptions();
                     configureOptions(options);
                     app.UseForwardedHeaders(options);
+                    configurePipeline?.Invoke(app);
                     app.Run(static context => context.Response.WriteAsync("probe", context.RequestAborted));
                 }))
             .Build();
@@ -40,7 +52,7 @@ internal sealed class TestHostHarness : IAsyncDisposable
         return new TestHostHarness(host);
     }
 
-    public static ForwardTrustRequestSender CreateSender(TestServer server)
+    public static ForwardTrustRequestSender CreateSender(TestServer server, Action<HttpContext>? afterSend = null)
     {
         return async (request, cancellationToken) =>
         {
@@ -53,6 +65,7 @@ internal sealed class TestHostHarness : IAsyncDisposable
                     httpContext.Request.Headers[header.Key] = header.Value;
                 }
             }, cancellationToken);
+            afterSend?.Invoke(context);
 
             return new ForwardedIdentity(
                 context.Request.Scheme,

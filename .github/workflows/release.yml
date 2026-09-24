@@ -35,6 +35,11 @@ jobs:
           dotnet test KeelMatrix.ForwardTrust.sln -c Release --no-build --logger "console;verbosity=minimal"
       - name: Pack exact product
         run: dotnet pack src/KeelMatrix.ForwardTrust/KeelMatrix.ForwardTrust.csproj -c Release --no-build -o artifacts/packages
+      - name: Validate exact packed artifact set
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME.Substring(1)
+          ./scripts/validate-package.ps1 -PackageDirectory artifacts/packages -ExpectedVersion $version -RequireIcon
       - name: Authenticate to NuGet.org
         id: nuget-login
         uses: NuGet/login@ebc737b6fc418a6ca0073cf116ec8dc156d8b81e # v1

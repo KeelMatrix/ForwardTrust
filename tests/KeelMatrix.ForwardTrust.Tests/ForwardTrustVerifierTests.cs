@@ -138,7 +138,7 @@ public sealed class ForwardTrustVerifierTests
         var scenario = Scenario("unsafe-boundary", UntrustedProxy, ForwardTrustHeaderExpectation.Rejected, ExpectedClient, "https", "spoofed.example");
         var result = await new ForwardTrustVerifier().VerifyAsync(
             [scenario],
-            (_, _) => ValueTask.FromResult(new ForwardedIdentity("https", ExpectedClient, "spoofed.example")));
+            MisconfiguredSender);
         var text = string.Join("\n", result.Failures.Select(failure => failure.Message));
 
         Assert.False(result.Succeeded);
@@ -252,5 +252,19 @@ public sealed class ForwardTrustVerifierTests
         options.KnownProxies.Add(TrustedProxy);
         options.KnownProxies.Add(SecondTrustedProxy);
         options.ForwardLimit = 1;
+    }
+
+    private static ValueTask<ForwardedIdentity> MisconfiguredSender(ForwardTrustRequest request, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (request.Headers.TryGetValue("X-Forwarded-Proto", out var scheme)
+            && request.Headers.TryGetValue("X-Forwarded-For", out var client)
+            && IPAddress.TryParse(client, out var clientAddress))
+        {
+            request.Headers.TryGetValue("X-Forwarded-Host", out var host);
+            return ValueTask.FromResult(new ForwardedIdentity(scheme, clientAddress, host));
+        }
+
+        return ValueTask.FromResult(new ForwardedIdentity("http", request.ImmediatePeerAddress));
     }
 }

@@ -34,10 +34,7 @@ var misconfigured = new ForwardTrustScenario(
     trusted.Headers);
 var misconfiguredResult = await verifier.VerifyAsync(
     [misconfigured],
-    static (_, _) => ValueTask.FromResult(new ForwardedIdentity(
-        "https",
-        IPAddress.Parse("198.51.100.10"),
-        "public.example")));
+    SendMisconfiguredAsync);
 
 Console.WriteLine($"trusted: {(trustedResult.Succeeded ? "PASS" : "FAIL")}");
 Console.WriteLine($"untrusted: {(untrustedResult.Succeeded ? "PASS" : "FAIL")}");
@@ -59,4 +56,18 @@ static ValueTask<ForwardedIdentity> SendAsync(ForwardTrustRequest request, Cance
         request.Headers["X-Forwarded-Proto"],
         IPAddress.Parse(request.Headers["X-Forwarded-For"]),
         request.Headers["X-Forwarded-Host"]));
+}
+
+static ValueTask<ForwardedIdentity> SendMisconfiguredAsync(ForwardTrustRequest request, CancellationToken cancellationToken)
+{
+    cancellationToken.ThrowIfCancellationRequested();
+    if (request.Headers.TryGetValue("X-Forwarded-Proto", out var scheme)
+        && request.Headers.TryGetValue("X-Forwarded-For", out var client)
+        && IPAddress.TryParse(client, out var clientAddress))
+    {
+        request.Headers.TryGetValue("X-Forwarded-Host", out var host);
+        return ValueTask.FromResult(new ForwardedIdentity(scheme, clientAddress, host));
+    }
+
+    return ValueTask.FromResult(new ForwardedIdentity("http", request.ImmediatePeerAddress));
 }

@@ -9,6 +9,8 @@ public sealed class ForwardTrustVerifier
     private const int MaxNameLength = 128;
     private const int MaxPathLength = 2048;
     private const int MaxHeaderLength = 16 * 1024;
+    private static readonly IPAddress ControlPeerOne = IPAddress.Parse("192.0.2.253");
+    private static readonly IPAddress ControlPeerTwo = IPAddress.Parse("192.0.2.254");
     private readonly ForwardTrustVerifierOptions options;
 
     /// <summary>Creates a verifier with conservative finite limits.</summary>
@@ -38,7 +40,7 @@ public sealed class ForwardTrustVerifier
         ArgumentNullException.ThrowIfNull(scenarios);
         ArgumentNullException.ThrowIfNull(requestSender);
 
-        var scenarioList = scenarios.ToArray();
+        var scenarioList = scenarios.Cast<ForwardTrustScenario?>().ToArray();
         if (scenarioList.Length > options.MaxScenarioCount)
         {
             return CreateSingleFailureResult(
@@ -50,7 +52,9 @@ public sealed class ForwardTrustVerifier
 
         var validationFailures = scenarioList
             .Select(ValidateScenario)
+            .Select(static failures => failures.ToList())
             .ToArray();
+        AddScenarioSetValidationFailures(scenarioList, validationFailures);
 
         var results = new List<ForwardTrustScenarioResult>(scenarioList.Length);
         for (var index = 0; index < scenarioList.Length; index++)
@@ -75,22 +79,118 @@ public sealed class ForwardTrustVerifier
         ForwardTrustRequestSender requestSender,
         CancellationToken cancellationToken)
     {
+        var primaryAttempt = await SendAsync(scenario, requestSender, cancellationToken).ConfigureAwait(false);
+        if (primaryAttempt.Failure is not null)
+        {
+            return new ForwardTrustScenarioResult(scenario.Name, false, null, [primaryAttempt.Failure]);
+        }
+
+        var observedIdentity = primaryAttempt.Identity!;
+        var failures = CompareIdentity(scenario, observedIdentity);
+        var controlFailures = await VerifyRequestApplicationAsync(scenario, requestSender, cancellationToken).ConfigureAwait(false);
+        failures.AddRange(controlFailures);
+
+        if (controlFailures.Count == 0)
+        {
+            foreach (var dimension in GetAssertedDimensions(scenario))
+            {
+                var counterfactual = CreateCounterfactualScenario(scenario, dimension.HeaderName);
+                var counterfactualAttempt = await SendAsync(counterfactual, requestSender, cancellationToken).ConfigureAwait(false);
+                if (counterfactualAttempt.Failure is not null)
+                {
+                    failures.Add(counterfactualAttempt.Failure);
+                    continue;
+                }
+
+                var dimensionMatches = SameDimension(dimension.Dimension, observedIdentity, counterfactualAttempt.Identity!);
+                if (scenario.HeaderExpectation == ForwardTrustHeaderExpectation.Accepted && dimensionMatches)
+                {
+                    failures.Add(new ForwardTrustFailure(
+                        scenario.Name,
+                        ForwardTrustFailureKind.ForwardedValueNotProven,
+                        dimension.Dimension,
+                        "The forwarded value matched, but changing that header did not change the observed dimension. The result is not proven to be caused by forwarded-header handling."));
+                }
+                else if (scenario.HeaderExpectation == ForwardTrustHeaderExpectation.Rejected && !dimensionMatches)
+                {
+                    failures.Add(new ForwardTrustFailure(
+                        scenario.Name,
+                        ForwardTrustFailureKind.UntrustedHeaderAccepted,
+                        dimension.Dimension,
+                        "Changing the untrusted forwarded value changed the observed dimension. Check trusted proxy/network configuration and middleware placement; do not broaden trust as a convenience fix."));
+                }
+            }
+        }
+
+        if (scenario.HeaderExpectation == ForwardTrustHeaderExpectation.Accepted
+            && GetAssertedDimensions(scenario).Count == 0)
+        {
+            failures.Add(new ForwardTrustFailure(
+                scenario.Name,
+                ForwardTrustFailureKind.ForwardedValueNotProven,
+                ForwardTrustDimension.Headers,
+                "The accepted scenario did not assert a forwarded scheme, host, or client address, so header handling cannot be proven."));
+        }
+
+        return new ForwardTrustScenarioResult(scenario.Name, failures.Count == 0, observedIdentity, failures);
+    }
+
+    private async Task<IReadOnlyList<ForwardTrustFailure>> VerifyRequestApplicationAsync(
+        ForwardTrustScenario scenario,
+        ForwardTrustRequestSender requestSender,
+        CancellationToken cancellationToken)
+    {
+        var failures = new List<ForwardTrustFailure>();
+        var controlScenarios = new[]
+        {
+            CreatePeerControlScenario(scenario, ControlPeerOne),
+            CreatePeerControlScenario(scenario, ControlPeerTwo)
+        };
+
+        foreach (var controlScenario in controlScenarios)
+        {
+            var attempt = await SendAsync(controlScenario, requestSender, cancellationToken).ConfigureAwait(false);
+            if (attempt.Failure is not null)
+            {
+                failures.Add(attempt.Failure);
+                continue;
+            }
+
+            if (!AddressesEqual(IPAddress.Parse(controlScenario.ImmediatePeerAddress), attempt.Identity!.ClientAddress))
+            {
+                failures.Add(new ForwardTrustFailure(
+                    scenario.Name,
+                    ForwardTrustFailureKind.RequestApplicationNotProven,
+                    ForwardTrustDimension.Scenario,
+                    "The request sender did not prove that it applied the simulated immediate peer address. No verdict is accepted without a load-bearing peer-seam control."));
+            }
+        }
+
+        return failures;
+    }
+
+    private async Task<ProbeAttempt> SendAsync(
+        ForwardTrustScenario scenario,
+        ForwardTrustRequestSender requestSender,
+        CancellationToken cancellationToken)
+    {
         var peerAddress = IPAddress.Parse(scenario.ImmediatePeerAddress);
         var request = new ForwardTrustRequest(scenario, peerAddress);
-        ForwardedIdentity? observedIdentity;
 
         try
         {
             using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutSource.CancelAfter(options.RequestTimeout);
-            observedIdentity = await requestSender(request, timeoutSource.Token)
+            var observedIdentity = await requestSender(request, timeoutSource.Token)
                 .AsTask()
                 .WaitAsync(timeoutSource.Token)
                 .ConfigureAwait(false);
             if (observedIdentity is null)
             {
-                return CreateProbeFailure(scenario.Name, "The test host returned no request identity.");
+                return ProbeAttempt.Failed(CreateHostSetupFailure(scenario.Name, "The test host returned no request identity."));
             }
+
+            return ProbeAttempt.Succeeded(observedIdentity);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -98,15 +198,12 @@ public sealed class ForwardTrustVerifier
         }
         catch (OperationCanceledException)
         {
-            return CreateProbeFailure(scenario.Name, "The test host or probe exceeded the finite request timeout.");
+            return ProbeAttempt.Failed(CreateProbeFailure(scenario.Name, "The test host or probe exceeded the finite request timeout."));
         }
         catch
         {
-            return CreateProbeFailure(scenario.Name, "The test host or probe failed before it returned a request identity.");
+            return ProbeAttempt.Failed(CreateHostSetupFailure(scenario.Name, "The test host or probe failed before it returned a request identity."));
         }
-
-        var failures = CompareIdentity(scenario, observedIdentity);
-        return new ForwardTrustScenarioResult(scenario.Name, failures.Count == 0, observedIdentity, failures);
     }
 
     private static IReadOnlyList<ForwardTrustFailure> ValidateScenario(ForwardTrustScenario? scenario)
@@ -161,6 +258,134 @@ public sealed class ForwardTrustVerifier
         return failures;
     }
 
+    private static void AddScenarioSetValidationFailures(
+        IReadOnlyList<ForwardTrustScenario?> scenarios,
+        IReadOnlyList<List<ForwardTrustFailure>> validationFailures)
+    {
+        var groups = scenarios
+            .Select((scenario, index) => (scenario, index))
+            .Where(static item => item.scenario is not null && !string.IsNullOrWhiteSpace(item.scenario.Name))
+            .GroupBy(static item => item.scenario!.Name, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var group in groups)
+        {
+            var items = group.ToArray();
+            if (items.Length < 2)
+            {
+                continue;
+            }
+
+            var equivalent = items.Skip(1).All(item => ScenariosEquivalent(items[0].scenario!, item.scenario!));
+            var kind = equivalent ? "Duplicate scenario name" : "Contradictory expectations for scenario name";
+            foreach (var item in items)
+            {
+                validationFailures[item.index].Add(Malformed(item.scenario!, $"{kind} '{group.Key}' is present more than once in the scenario set."));
+            }
+        }
+    }
+
+    private static bool ScenariosEquivalent(ForwardTrustScenario left, ForwardTrustScenario right)
+    {
+        return string.Equals(left.ImmediatePeerAddress, right.ImmediatePeerAddress, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(left.Path, right.Path, StringComparison.Ordinal)
+            && left.HeaderExpectation == right.HeaderExpectation
+            && IdentitiesEqual(left.ExpectedIdentity, right.ExpectedIdentity)
+            && left.Headers.Count == right.Headers.Count
+            && left.Headers.All(header => right.Headers.TryGetValue(header.Key, out var value) && string.Equals(header.Value, value, StringComparison.Ordinal));
+    }
+
+    private static bool IdentitiesEqual(ForwardedIdentity left, ForwardedIdentity right)
+    {
+        return string.Equals(left.Scheme, right.Scheme, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(left.Host, right.Host, StringComparison.OrdinalIgnoreCase)
+            && AddressesEqual(left.ClientAddress, right.ClientAddress);
+    }
+
+    private static List<DimensionSpec> GetAssertedDimensions(ForwardTrustScenario scenario)
+    {
+        var dimensions = new List<DimensionSpec>();
+        if (scenario.Headers.Keys.Any(static key => key.Equals("X-Forwarded-Proto", StringComparison.OrdinalIgnoreCase)))
+        {
+            dimensions.Add(new DimensionSpec(ForwardTrustDimension.Scheme, "X-Forwarded-Proto"));
+        }
+
+        if (scenario.ExpectedIdentity.Host is not null
+            && scenario.Headers.Keys.Any(static key => key.Equals("X-Forwarded-Host", StringComparison.OrdinalIgnoreCase)))
+        {
+            dimensions.Add(new DimensionSpec(ForwardTrustDimension.Host, "X-Forwarded-Host"));
+        }
+
+        if (scenario.Headers.Keys.Any(static key => key.Equals("X-Forwarded-For", StringComparison.OrdinalIgnoreCase)))
+        {
+            dimensions.Add(new DimensionSpec(ForwardTrustDimension.ClientAddress, "X-Forwarded-For"));
+        }
+
+        return dimensions;
+    }
+
+    private static ForwardTrustScenario CreatePeerControlScenario(ForwardTrustScenario scenario, IPAddress controlPeer)
+    {
+        var headers = scenario.Headers
+            .Where(static header => !IsForwardedHeader(header.Key))
+            .ToDictionary(static header => header.Key, static header => header.Value, StringComparer.OrdinalIgnoreCase);
+        return new ForwardTrustScenario(
+            scenario.Name,
+            controlPeer.ToString(),
+            new ForwardedIdentity("http", controlPeer),
+            ForwardTrustHeaderExpectation.Rejected,
+            headers,
+            scenario.Path);
+    }
+
+    private static ForwardTrustScenario CreateCounterfactualScenario(ForwardTrustScenario scenario, string headerName)
+    {
+        var headers = new Dictionary<string, string>(scenario.Headers, StringComparer.OrdinalIgnoreCase)
+        {
+            [headerName] = CounterfactualValue(headerName, scenario.Headers[headerName])
+        };
+        return new ForwardTrustScenario(
+            scenario.Name,
+            scenario.ImmediatePeerAddress,
+            scenario.ExpectedIdentity,
+            scenario.HeaderExpectation,
+            headers,
+            scenario.Path);
+    }
+
+    private static string CounterfactualValue(string headerName, string originalValue)
+    {
+        if (headerName.Equals("X-Forwarded-Proto", StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Join(", ", SplitHeaderValues(originalValue)
+                .Select(static value => value.Equals("https", StringComparison.OrdinalIgnoreCase) ? "http" : "https"));
+        }
+
+        if (headerName.Equals("X-Forwarded-Host", StringComparison.OrdinalIgnoreCase))
+        {
+            return "counterfactual.example";
+        }
+
+        return originalValue.Contains("203.0.113.254", StringComparison.Ordinal)
+            ? "198.51.100.254"
+            : "203.0.113.254";
+    }
+
+    private static bool SameDimension(ForwardTrustDimension dimension, ForwardedIdentity left, ForwardedIdentity right)
+    {
+        return dimension switch
+        {
+            ForwardTrustDimension.Scheme => string.Equals(left.Scheme, right.Scheme, StringComparison.OrdinalIgnoreCase),
+            ForwardTrustDimension.Host => string.Equals(left.Host, right.Host, StringComparison.OrdinalIgnoreCase),
+            ForwardTrustDimension.ClientAddress => AddressesEqual(left.ClientAddress, right.ClientAddress),
+            _ => true
+        };
+    }
+
+    private static bool AddressesEqual(IPAddress left, IPAddress right)
+    {
+        return left.MapToIPv6().Equals(right.MapToIPv6());
+    }
+
     private static List<ForwardTrustFailure> CompareIdentity(
         ForwardTrustScenario scenario,
         ForwardedIdentity observed)
@@ -170,7 +395,7 @@ public sealed class ForwardTrustVerifier
         var schemeMatches = string.Equals(expected.Scheme, observed.Scheme, StringComparison.OrdinalIgnoreCase);
         var hostMatches = expected.Host is null
             || string.Equals(expected.Host, observed.Host, StringComparison.OrdinalIgnoreCase);
-        var addressMatches = expected.ClientAddress.MapToIPv6().Equals(observed.ClientAddress.MapToIPv6());
+        var addressMatches = AddressesEqual(expected.ClientAddress, observed.ClientAddress);
 
         if (!schemeMatches)
         {
@@ -205,66 +430,38 @@ public sealed class ForwardTrustVerifier
                 observed.ClientAddress.ToString()));
         }
 
-        var hasForwardedHeaders = scenario.Headers.Keys.Any(IsForwardedHeader);
-        var forwardedValueObserved = ObservedForwardedValue(scenario.Headers, observed);
-        if (scenario.HeaderExpectation == ForwardTrustHeaderExpectation.Accepted)
+        foreach (var dimension in GetAssertedDimensions(scenario))
         {
-            if (hasForwardedHeaders && !forwardedValueObserved)
+            var matches = SameDimension(dimension.Dimension, observed, expected);
+            if (!matches)
             {
                 failures.Add(new ForwardTrustFailure(
                     scenario.Name,
-                    ForwardTrustFailureKind.TrustedHeaderRejected,
-                    ForwardTrustDimension.Headers,
-                    "The trusted scenario's forwarded values were not applied. Check trusted proxy/network configuration and middleware placement."));
-            }
-
-            if (GetHopCount(scenario.Headers) > 1 && failures.Any(static failure =>
-                    failure.Kind is ForwardTrustFailureKind.ClientAddressMismatch or ForwardTrustFailureKind.SchemeMismatch or ForwardTrustFailureKind.HostMismatch))
-            {
-                failures.Add(new ForwardTrustFailure(
-                    scenario.Name,
-                    ForwardTrustFailureKind.ForwardLimitMismatch,
-                    ForwardTrustDimension.ForwardLimit,
-                    "The multi-hop forwarded values did not produce the expected identity. Check ForwardLimit and trusted proxy/network configuration."));
+                    scenario.HeaderExpectation == ForwardTrustHeaderExpectation.Accepted
+                        ? ForwardTrustFailureKind.TrustedHeaderRejected
+                        : ForwardTrustFailureKind.UntrustedHeaderAccepted,
+                    dimension.Dimension,
+                    scenario.HeaderExpectation == ForwardTrustHeaderExpectation.Accepted
+                        ? "The trusted forwarded value was not applied for this dimension. Check trusted proxy/network configuration and middleware placement."
+                        : "The untrusted forwarded value was applied for this dimension. Check trusted proxy/network configuration and middleware placement; do not broaden trust as a convenience fix."));
             }
         }
-        else if (hasForwardedHeaders && forwardedValueObserved)
+
+        if (GetHopCount(scenario.Headers) > 1 && failures.Any(static failure =>
+                failure.Kind is ForwardTrustFailureKind.ClientAddressMismatch
+                    or ForwardTrustFailureKind.SchemeMismatch
+                    or ForwardTrustFailureKind.HostMismatch
+                    or ForwardTrustFailureKind.TrustedHeaderRejected
+                    or ForwardTrustFailureKind.UntrustedHeaderAccepted))
         {
             failures.Add(new ForwardTrustFailure(
                 scenario.Name,
-                ForwardTrustFailureKind.UntrustedHeaderAccepted,
-                ForwardTrustDimension.Headers,
-                "The untrusted scenario's forwarded values were applied. Check trusted proxy/network configuration and middleware placement; do not broaden trust as a convenience fix."));
+                ForwardTrustFailureKind.ForwardLimitMismatch,
+                ForwardTrustDimension.ForwardLimit,
+                "The multi-hop forwarded values did not produce the expected effective identity. Check ForwardLimit and trusted proxy/network configuration."));
         }
 
         return failures;
-    }
-
-    private static bool ObservedForwardedValue(
-        IReadOnlyDictionary<string, string> headers,
-        ForwardedIdentity observed)
-    {
-        if (TryGetHeader(headers, "X-Forwarded-Proto", out var proto)
-            && SplitHeaderValues(proto).Any(value => string.Equals(value, observed.Scheme, StringComparison.OrdinalIgnoreCase)))
-        {
-            return true;
-        }
-
-        if (observed.Host is not null
-            && TryGetHeader(headers, "X-Forwarded-Host", out var host)
-            && SplitHeaderValues(host).Any(value => string.Equals(value, observed.Host, StringComparison.OrdinalIgnoreCase)))
-        {
-            return true;
-        }
-
-        if (TryGetHeader(headers, "X-Forwarded-For", out var forwardedFor)
-            && SplitHeaderValues(forwardedFor).Any(value => IPAddress.TryParse(value, out var ip)
-                && ip.MapToIPv6().Equals(observed.ClientAddress.MapToIPv6())))
-        {
-            return true;
-        }
-
-        return false;
     }
 
     private static int GetHopCount(IReadOnlyDictionary<string, string> headers)
@@ -289,20 +486,19 @@ public sealed class ForwardTrustVerifier
             || name.Equals("X-Forwarded-Host", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool TryGetHeader(IReadOnlyDictionary<string, string> headers, string name, out string value)
-    {
-        return headers.TryGetValue(name, out value!);
-    }
-
     private static ForwardTrustFailure Malformed(ForwardTrustScenario scenario, string message)
     {
         return new ForwardTrustFailure(scenario.Name, ForwardTrustFailureKind.MalformedScenario, ForwardTrustDimension.Scenario, message);
     }
 
-    private static ForwardTrustScenarioResult CreateProbeFailure(string scenarioName, string message)
+    private static ForwardTrustFailure CreateProbeFailure(string scenarioName, string message)
     {
-        var failure = new ForwardTrustFailure(scenarioName, ForwardTrustFailureKind.HostProbeFailure, ForwardTrustDimension.Scenario, message);
-        return new ForwardTrustScenarioResult(scenarioName, false, null, [failure]);
+        return new ForwardTrustFailure(scenarioName, ForwardTrustFailureKind.HostProbeFailure, ForwardTrustDimension.Scenario, message);
+    }
+
+    private static ForwardTrustFailure CreateHostSetupFailure(string scenarioName, string message)
+    {
+        return new ForwardTrustFailure(scenarioName, ForwardTrustFailureKind.HostSetupFailure, ForwardTrustDimension.Scenario, message);
     }
 
     private static ForwardTrustResult CreateSingleFailureResult(
@@ -314,5 +510,14 @@ public sealed class ForwardTrustVerifier
         var failure = new ForwardTrustFailure(scenarioName, kind, dimension, message);
         var scenario = new ForwardTrustScenarioResult(scenarioName, false, null, [failure]);
         return new ForwardTrustResult([scenario]);
+    }
+
+    private sealed record DimensionSpec(ForwardTrustDimension Dimension, string HeaderName);
+
+    private sealed record ProbeAttempt(ForwardedIdentity? Identity, ForwardTrustFailure? Failure)
+    {
+        public static ProbeAttempt Succeeded(ForwardedIdentity identity) => new(identity, null);
+
+        public static ProbeAttempt Failed(ForwardTrustFailure failure) => new(null, failure);
     }
 }

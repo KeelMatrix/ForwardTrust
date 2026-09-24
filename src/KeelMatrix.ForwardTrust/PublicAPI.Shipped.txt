@@ -23,10 +23,13 @@ KeelMatrix.ForwardTrust.ForwardTrustFailureKind.ClientAddressMismatch = 4 -> Kee
 KeelMatrix.ForwardTrust.ForwardTrustFailureKind.ForwardLimitMismatch = 5 -> KeelMatrix.ForwardTrust.ForwardTrustFailureKind
 KeelMatrix.ForwardTrust.ForwardTrustFailureKind.HostMismatch = 3 -> KeelMatrix.ForwardTrust.ForwardTrustFailureKind
 KeelMatrix.ForwardTrust.ForwardTrustFailureKind.HostProbeFailure = 7 -> KeelMatrix.ForwardTrust.ForwardTrustFailureKind
+KeelMatrix.ForwardTrust.ForwardTrustFailureKind.HostSetupFailure = 8 -> KeelMatrix.ForwardTrust.ForwardTrustFailureKind
 KeelMatrix.ForwardTrust.ForwardTrustFailureKind.MalformedScenario = 6 -> KeelMatrix.ForwardTrust.ForwardTrustFailureKind
+KeelMatrix.ForwardTrust.ForwardTrustFailureKind.RequestApplicationNotProven = 9 -> KeelMatrix.ForwardTrust.ForwardTrustFailureKind
 KeelMatrix.ForwardTrust.ForwardTrustFailureKind.SchemeMismatch = 2 -> KeelMatrix.ForwardTrust.ForwardTrustFailureKind
 KeelMatrix.ForwardTrust.ForwardTrustFailureKind.TrustedHeaderRejected = 0 -> KeelMatrix.ForwardTrust.ForwardTrustFailureKind
 KeelMatrix.ForwardTrust.ForwardTrustFailureKind.UntrustedHeaderAccepted = 1 -> KeelMatrix.ForwardTrust.ForwardTrustFailureKind
+KeelMatrix.ForwardTrust.ForwardTrustFailureKind.ForwardedValueNotProven = 10 -> KeelMatrix.ForwardTrust.ForwardTrustFailureKind
 KeelMatrix.ForwardTrust.ForwardTrustHeaderExpectation
 KeelMatrix.ForwardTrust.ForwardTrustHeaderExpectation.Accepted = 0 -> KeelMatrix.ForwardTrust.ForwardTrustHeaderExpectation
 KeelMatrix.ForwardTrust.ForwardTrustHeaderExpectation.Rejected = 1 -> KeelMatrix.ForwardTrust.ForwardTrustHeaderExpectation
