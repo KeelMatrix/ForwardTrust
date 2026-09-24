@@ -61,7 +61,10 @@ public sealed class ForwardTrustQuickStartTests
                 ["X-Forwarded-For"] = "198.51.100.10",
                 ["X-Forwarded-Proto"] = "https",
                 ["X-Forwarded-Host"] = "public.example"
-            });
+            },
+            control: new ForwardTrustControl(
+                "10.0.0.20",
+                new ForwardedIdentity("http", IPAddress.Parse("10.0.0.20"), "localhost")));
 
         var result = await new ForwardTrustVerifier().VerifyAsync(
             [scenario],
@@ -93,17 +96,17 @@ public sealed class ForwardTrustQuickStartTests
 }
 ```
 
-For an untrusted peer, use `ForwardTrustHeaderExpectation.Rejected` and expect the identity exposed when the forwarded values are ignored. The verifier validates all scenarios before sending requests, bounds scenario count and timeout, proves the sender applied the peer seam, and uses one counterfactual request for each asserted forwarded dimension.
+For an untrusted peer, use `ForwardTrustHeaderExpectation.Rejected`, expect the identity exposed when forwarded values are ignored, and set `control` to a trusted peer plus the identity those same headers must produce. An accepted scenario uses an untrusted control peer and its ignored-header identity. For every asserted dimension, the verifier sends original and counterfactual requests through both peers during that scenario's own execution. The accepted side must change and the rejected side must remain stable.
 
 ## Failure diagnostics
 
 `ForwardTrustResult.Failures` distinguishes trusted-header rejection, untrusted-header acceptance, scheme, host, client-address, forward-limit, malformed-scenario, timed-out host/probe, host setup, request-application-not-proven, and forwarded-value-not-proven failures. Duplicate scenario names and contradictory expectations are rejected before any request is sent.
 
-`RequestApplicationNotProven` means the sender did not demonstrate that it applied two distinct no-forwarded-header peer controls. `ForwardedValueNotProven` means an asserted forwarded value matched, but changing that dimension did not change the observed dimension. Neither outcome is a pass.
+`RequestApplicationNotProven` means an asserted scenario omitted a valid scenario-local opposite-trust control or reused its primary peer. `ForwardedValueNotProven` means changing a forwarded value did not change the accepted-side observation. Neither outcome is a pass. Header-dropping, rewriting, reordering, cached, and replayed senders fail closed instead of passing on a peer/default identity.
 
 ## Boundaries
 
-ForwardTrust proves application-pipeline interpretation in an in-process test. It proves each asserted scheme, host, and client-address dimension independently. It does not prove the actual configuration of a cloud load balancer, ingress controller, firewall, reverse proxy, or production network path. It never rewrites `ForwardedHeadersOptions`, discovers infrastructure, or makes external network calls.
+ForwardTrust proves application-pipeline interpretation in an in-process test. It proves each asserted scheme, host, and client-address dimension independently with a scenario-local accepted/rejected control pair. It does not prove the actual configuration of a cloud load balancer, ingress controller, firewall, reverse proxy, or production network path. It never rewrites `ForwardedHeadersOptions`, discovers infrastructure, or makes external network calls.
 
 Clearing trusted proxy/network lists broadens trust and can enable spoofing. Configure only the proxies and networks that are actually trusted.
 

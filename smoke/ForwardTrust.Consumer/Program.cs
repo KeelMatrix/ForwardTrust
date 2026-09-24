@@ -14,14 +14,20 @@ var trusted = new ForwardTrustScenario(
         ["X-Forwarded-For"] = "198.51.100.10",
         ["X-Forwarded-Proto"] = "https",
         ["X-Forwarded-Host"] = "public.example"
-    });
+    },
+    control: new ForwardTrustControl(
+        "10.0.0.20",
+        new ForwardedIdentity("http", IPAddress.Parse("10.0.0.20"))));
 
 var untrusted = new ForwardTrustScenario(
     "untrusted-proxy",
     "10.0.0.20",
     new ForwardedIdentity("http", IPAddress.Parse("10.0.0.20")),
     ForwardTrustHeaderExpectation.Rejected,
-    trusted.Headers);
+    trusted.Headers,
+    control: new ForwardTrustControl(
+        trustedPeer,
+        new ForwardedIdentity("https", IPAddress.Parse("198.51.100.10"), "public.example")));
 
 var trustedResult = await verifier.VerifyAsync([trusted], SendAsync);
 var untrustedResult = await verifier.VerifyAsync([untrusted], SendAsync);
@@ -31,7 +37,10 @@ var misconfigured = new ForwardTrustScenario(
     "10.0.0.20",
     new ForwardedIdentity("http", IPAddress.Parse("10.0.0.20")),
     ForwardTrustHeaderExpectation.Rejected,
-    trusted.Headers);
+    trusted.Headers,
+    control: new ForwardTrustControl(
+        trustedPeer,
+        new ForwardedIdentity("https", IPAddress.Parse("198.51.100.10"), "public.example")));
 var misconfiguredResult = await verifier.VerifyAsync(
     [misconfigured],
     SendMisconfiguredAsync);

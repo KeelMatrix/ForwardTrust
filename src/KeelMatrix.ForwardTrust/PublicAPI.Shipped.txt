@@ -4,6 +4,10 @@ KeelMatrix.ForwardTrust.ForwardedIdentity.ClientAddress.get -> System.Net.IPAddr
 KeelMatrix.ForwardTrust.ForwardedIdentity.ForwardedIdentity(string! scheme, System.Net.IPAddress! clientAddress, string? host = null) -> void
 KeelMatrix.ForwardTrust.ForwardedIdentity.Host.get -> string?
 KeelMatrix.ForwardTrust.ForwardedIdentity.Scheme.get -> string!
+KeelMatrix.ForwardTrust.ForwardTrustControl
+KeelMatrix.ForwardTrust.ForwardTrustControl.ExpectedIdentity.get -> KeelMatrix.ForwardTrust.ForwardedIdentity!
+KeelMatrix.ForwardTrust.ForwardTrustControl.ForwardTrustControl(string! immediatePeerAddress, KeelMatrix.ForwardTrust.ForwardedIdentity! expectedIdentity) -> void
+KeelMatrix.ForwardTrust.ForwardTrustControl.ImmediatePeerAddress.get -> string!
 KeelMatrix.ForwardTrust.ForwardTrustDimension
 KeelMatrix.ForwardTrust.ForwardTrustDimension.ClientAddress = 3 -> KeelMatrix.ForwardTrust.ForwardTrustDimension
 KeelMatrix.ForwardTrust.ForwardTrustDimension.ForwardLimit = 4 -> KeelMatrix.ForwardTrust.ForwardTrustDimension
@@ -44,8 +48,9 @@ KeelMatrix.ForwardTrust.ForwardTrustResult.Failures.get -> System.Collections.Ge
 KeelMatrix.ForwardTrust.ForwardTrustResult.Scenarios.get -> System.Collections.Generic.IReadOnlyList<KeelMatrix.ForwardTrust.ForwardTrustScenarioResult!>!
 KeelMatrix.ForwardTrust.ForwardTrustResult.Succeeded.get -> bool
 KeelMatrix.ForwardTrust.ForwardTrustScenario
+KeelMatrix.ForwardTrust.ForwardTrustScenario.Control.get -> KeelMatrix.ForwardTrust.ForwardTrustControl?
 KeelMatrix.ForwardTrust.ForwardTrustScenario.ExpectedIdentity.get -> KeelMatrix.ForwardTrust.ForwardedIdentity!
-KeelMatrix.ForwardTrust.ForwardTrustScenario.ForwardTrustScenario(string! name, string! immediatePeerAddress, KeelMatrix.ForwardTrust.ForwardedIdentity! expectedIdentity, KeelMatrix.ForwardTrust.ForwardTrustHeaderExpectation headerExpectation, System.Collections.Generic.IReadOnlyDictionary<string!, string!>? headers = null, string! path = "/forward-trust-probe") -> void
+KeelMatrix.ForwardTrust.ForwardTrustScenario.ForwardTrustScenario(string! name, string! immediatePeerAddress, KeelMatrix.ForwardTrust.ForwardedIdentity! expectedIdentity, KeelMatrix.ForwardTrust.ForwardTrustHeaderExpectation headerExpectation, System.Collections.Generic.IReadOnlyDictionary<string!, string!>? headers = null, string! path = "/forward-trust-probe", KeelMatrix.ForwardTrust.ForwardTrustControl? control = null) -> void
 KeelMatrix.ForwardTrust.ForwardTrustScenario.HeaderExpectation.get -> KeelMatrix.ForwardTrust.ForwardTrustHeaderExpectation
 KeelMatrix.ForwardTrust.ForwardTrustScenario.Headers.get -> System.Collections.Generic.IReadOnlyDictionary<string!, string!>!
 KeelMatrix.ForwardTrust.ForwardTrustScenario.ImmediatePeerAddress.get -> string!

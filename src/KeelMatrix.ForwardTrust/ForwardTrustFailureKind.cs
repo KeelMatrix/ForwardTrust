@@ -30,9 +30,9 @@ public enum ForwardTrustFailureKind
     /// <summary>The caller-provided host or probe failed before it returned an identity.</summary>
     HostSetupFailure,
 
-    /// <summary>The request sender did not prove that it applied the request and peer seam.</summary>
+    /// <summary>The scenario did not provide a load-bearing, scenario-local opposite-trust control.</summary>
     RequestApplicationNotProven,
 
-    /// <summary>A forwarded value matched, but its effect was not proven by a counterfactual request.</summary>
+    /// <summary>The accepted request path did not react to a forwarded-header counterfactual.</summary>
     ForwardedValueNotProven
 }

@@ -10,7 +10,7 @@ ForwardTrust ships only a `net8.0` asset and is tested against the ASP.NET Core 
 
 ASP.NET Core 8.0.17 introduced hardening that ignores `X-Forwarded-*` values from unknown proxies. The v1 fixtures use `ForwardedHeadersOptions.KnownProxies`, `KnownNetworks`, and `ForwardLimit`; on net8.0, `ForwardLimit` defaults to `1`, and headers are processed right-to-left. ForwardTrust does not alter any of those options.
 
-Each verification also sends two no-forwarded-header peer controls. A result is not accepted when the request sender cannot demonstrate that it applied both distinct peer addresses. For each asserted scheme, host, and client-address header, the verifier sends a counterfactual value and requires that accepted handling change that same observed dimension; a coincidence with an application default is therefore not proof.
+Each scenario with an asserted forwarded dimension declares its own opposite-trust peer and expected identity. For every asserted scheme, host, and client-address header, the verifier sends the original and a counterfactual value through both peers. The accepted path must change that dimension and the rejected path must remain stable. Missing controls, peer/default echoes, dropped or rewritten headers, and stale observations are therefore not proof.
 
 ## Test-host peer seam
 

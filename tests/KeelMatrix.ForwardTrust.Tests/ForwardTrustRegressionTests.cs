@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.HttpsPolicy;
 using Microsoft.Extensions.DependencyInjection;
+using Xunit.Abstractions;
 
 namespace KeelMatrix.ForwardTrust.Tests;
 
@@ -15,6 +16,116 @@ public sealed class ForwardTrustRegressionTests
     private static readonly IPAddress ThirdTrustedProxy = IPAddress.Parse("10.0.0.12");
     private static readonly IPAddress UntrustedProxy = IPAddress.Parse("10.0.0.20");
     private static readonly IPAddress ExpectedClient = IPAddress.Parse("198.51.100.10");
+    private readonly ITestOutputHelper output;
+
+    public ForwardTrustRegressionTests(ITestOutputHelper output)
+    {
+        this.output = output;
+    }
+
+    [Fact]
+    public async Task ReviewersRejectedScenarioFalseSafeProbesFailClosed()
+    {
+        var headers = new Dictionary<string, string>
+        {
+            ["X-Forwarded-For"] = ExpectedClient.ToString(),
+            ["X-Forwarded-Proto"] = "https"
+        };
+        var droppedHeaders = new ForwardTrustScenario(
+            "untrusted-peer-applied-headers-dropped",
+            UntrustedProxy.ToString(),
+            new ForwardedIdentity("http", UntrustedProxy),
+            ForwardTrustHeaderExpectation.Rejected,
+            headers,
+            control: TrustedAcceptedControl());
+        var staleObservation = new ForwardTrustScenario(
+            "untrusted-stale-cached-observation",
+            UntrustedProxy.ToString(),
+            new ForwardedIdentity("http", UntrustedProxy),
+            ForwardTrustHeaderExpectation.Rejected,
+            headers,
+            control: TrustedAcceptedControl());
+        var crossScenarioOne = new ForwardTrustScenario(
+            "cross-scenario-one",
+            UntrustedProxy.ToString(),
+            new ForwardedIdentity("http", UntrustedProxy),
+            ForwardTrustHeaderExpectation.Rejected,
+            headers,
+            control: TrustedAcceptedControl());
+        var crossScenarioTwo = new ForwardTrustScenario(
+            "cross-scenario-two",
+            UntrustedProxy.ToString(),
+            new ForwardedIdentity("http", UntrustedProxy),
+            ForwardTrustHeaderExpectation.Rejected,
+            headers,
+            control: TrustedAcceptedControl());
+        var cached = new ForwardedIdentity("http", UntrustedProxy);
+
+        var droppedResult = await new ForwardTrustVerifier().VerifyAsync(
+            [droppedHeaders],
+            static (request, cancellationToken) =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return ValueTask.FromResult(new ForwardedIdentity("http", request.ImmediatePeerAddress));
+            });
+        var staleResult = await new ForwardTrustVerifier().VerifyAsync(
+            [staleObservation],
+            (request, cancellationToken) =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return ValueTask.FromResult(request.Headers.Count == 0
+                    ? new ForwardedIdentity("http", request.ImmediatePeerAddress)
+                    : cached);
+            });
+        var crossScenarioResult = await new ForwardTrustVerifier().VerifyAsync(
+            [crossScenarioOne, crossScenarioTwo],
+            (request, cancellationToken) =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return ValueTask.FromResult(request.Headers.Count == 0
+                    ? new ForwardedIdentity("http", request.ImmediatePeerAddress)
+                    : cached);
+            });
+
+        WriteProbeResult(droppedHeaders.Name, droppedResult);
+        WriteProbeResult(staleObservation.Name, staleResult);
+        WriteProbeResult("cross-scenario-control-vouching", crossScenarioResult);
+        Assert.False(droppedResult.Succeeded);
+        Assert.False(staleResult.Succeeded);
+        Assert.False(crossScenarioResult.Succeeded);
+    }
+
+    [Fact]
+    public async Task RealTrustedAndUntrustedPipelinesSatisfyScenarioLocalControls()
+    {
+        await using var host = await TestHostHarness.StartAsync(ConfigureExactProxies);
+        var headers = new Dictionary<string, string>
+        {
+            ["X-Forwarded-For"] = ExpectedClient.ToString(),
+            ["X-Forwarded-Proto"] = "https"
+        };
+        var trusted = new ForwardTrustScenario(
+            "real-trusted-control-pair",
+            TrustedProxy.ToString(),
+            new ForwardedIdentity("https", ExpectedClient),
+            ForwardTrustHeaderExpectation.Accepted,
+            headers,
+            control: RejectedControl(UntrustedProxy));
+        var untrusted = new ForwardTrustScenario(
+            "real-untrusted-control-pair",
+            UntrustedProxy.ToString(),
+            new ForwardedIdentity("http", UntrustedProxy),
+            ForwardTrustHeaderExpectation.Rejected,
+            headers,
+            control: TrustedAcceptedControl());
+
+        var result = await new ForwardTrustVerifier().VerifyAsync(
+            [trusted, untrusted],
+            TestHostHarness.CreateSender(host.Server));
+
+        Assert.True(result.Succeeded);
+        Assert.All(result.Scenarios, scenario => Assert.True(scenario.Succeeded));
+    }
 
     [Fact]
     public async Task ReviewersDefaultCoincidenceProbesFailClosedWithNoOpSender()
@@ -28,25 +139,28 @@ public sealed class ForwardTrustRegressionTests
             {
                 ["X-Forwarded-For"] = TrustedProxy.ToString(),
                 ["X-Forwarded-Proto"] = "http"
-            });
+            },
+            control: RejectedControl(UntrustedProxy));
         var untrusted = new ForwardTrustScenario(
             "untrusted-default-coincidence",
             UntrustedProxy.ToString(),
-            new ForwardedIdentity("http", TrustedProxy),
+            new ForwardedIdentity("http", UntrustedProxy),
             ForwardTrustHeaderExpectation.Rejected,
             new Dictionary<string, string>
             {
                 ["X-Forwarded-For"] = ExpectedClient.ToString(),
                 ["X-Forwarded-Proto"] = "https"
-            });
+            },
+            control: TrustedAcceptedControl());
 
         var result = await new ForwardTrustVerifier().VerifyAsync(
             [trusted, untrusted],
             static (_, _) => ValueTask.FromResult(new ForwardedIdentity("http", TrustedProxy)));
 
         Assert.False(result.Succeeded);
-        Assert.Equal(2, result.Scenarios.Count(scenario =>
-            scenario.Failures.Any(failure => failure.Kind == ForwardTrustFailureKind.RequestApplicationNotProven)));
+        Assert.All(result.Scenarios, scenario => Assert.Contains(
+            scenario.Failures,
+            failure => failure.Kind == ForwardTrustFailureKind.ForwardedValueNotProven));
     }
 
     [Fact]
@@ -62,9 +176,35 @@ public sealed class ForwardTrustRegressionTests
             {
                 ["X-Forwarded-For"] = TrustedProxy.ToString(),
                 ["X-Forwarded-Proto"] = "http"
-            });
+            },
+            control: RejectedControl(UntrustedProxy));
 
         var result = await new ForwardTrustVerifier().VerifyAsync([scenario], TestHostHarness.CreateSender(host.Server));
+
+        Assert.True(result.Succeeded);
+    }
+
+    [Fact]
+    public async Task CounterfactualValuesCannotCollideWithAcceptedObservations()
+    {
+        var acceptedClient = IPAddress.Parse("203.0.113.254");
+        await using var host = await TestHostHarness.StartAsync(ConfigureExactProxies);
+        var scenario = new ForwardTrustScenario(
+            "counterfactual-collision",
+            TrustedProxy.ToString(),
+            new ForwardedIdentity("https", acceptedClient, "counterfactual.example"),
+            ForwardTrustHeaderExpectation.Accepted,
+            new Dictionary<string, string>
+            {
+                ["X-Forwarded-For"] = acceptedClient.ToString(),
+                ["X-Forwarded-Proto"] = "https",
+                ["X-Forwarded-Host"] = "counterfactual.example"
+            },
+            control: RejectedControl(UntrustedProxy, assertHost: true));
+
+        var result = await new ForwardTrustVerifier().VerifyAsync(
+            [scenario],
+            TestHostHarness.CreateSender(host.Server));
 
         Assert.True(result.Succeeded);
     }
@@ -81,7 +221,8 @@ public sealed class ForwardTrustRegressionTests
             {
                 ["X-Forwarded-For"] = ExpectedClient.ToString(),
                 ["X-Forwarded-Proto"] = "https"
-            });
+            },
+            control: RejectedControl(UntrustedProxy));
 
         var result = await new ForwardTrustVerifier().VerifyAsync([scenario], static (request, cancellationToken) =>
         {
@@ -148,7 +289,8 @@ public sealed class ForwardTrustRegressionTests
             {
                 ["X-Forwarded-For"] = expectedClient.ToString(),
                 ["X-Forwarded-Proto"] = "https"
-            });
+            },
+            control: RejectedControl(UntrustedProxy));
         var proxyResult = await new ForwardTrustVerifier().VerifyAsync([proxyScenario], TestHostHarness.CreateSender(proxyHost.Server));
 
         await using var networkHost = await TestHostHarness.StartAsync(options =>
@@ -165,13 +307,17 @@ public sealed class ForwardTrustRegressionTests
             "2001:db8:1::25",
             new ForwardedIdentity("https", IPAddress.Parse("2001:db8:1::25")),
             ForwardTrustHeaderExpectation.Accepted,
-            new Dictionary<string, string> { ["X-Forwarded-Proto"] = "https" });
+            new Dictionary<string, string> { ["X-Forwarded-Proto"] = "https" },
+            control: RejectedControl(IPAddress.Parse("2001:db8:2::25")));
         var outside = new ForwardTrustScenario(
             "ipv6-network-outside",
             "2001:db8:2::25",
             new ForwardedIdentity("http", IPAddress.Parse("2001:db8:2::25")),
             ForwardTrustHeaderExpectation.Rejected,
-            new Dictionary<string, string> { ["X-Forwarded-Proto"] = "https" });
+            new Dictionary<string, string> { ["X-Forwarded-Proto"] = "https" },
+            control: new ForwardTrustControl(
+                "2001:db8:1::25",
+                new ForwardedIdentity("https", IPAddress.Parse("2001:db8:1::25"))));
         var networkResult = await new ForwardTrustVerifier().VerifyAsync([inside, outside], TestHostHarness.CreateSender(networkHost.Server));
 
         Assert.True(proxyResult.Succeeded);
@@ -196,7 +342,10 @@ public sealed class ForwardTrustRegressionTests
             {
                 ["X-Forwarded-For"] = "not-an-ip",
                 ["X-Forwarded-Proto"] = "https"
-            });
+            },
+            control: new ForwardTrustControl(
+                SecondTrustedProxy.ToString(),
+                new ForwardedIdentity("https", SecondTrustedProxy)));
 
         var result = await new ForwardTrustVerifier().VerifyAsync([missing, malformed], TestHostHarness.CreateSender(host.Server));
 
@@ -221,7 +370,8 @@ public sealed class ForwardTrustRegressionTests
             new ForwardedIdentity("https", TrustedProxy),
             ForwardTrustHeaderExpectation.Accepted,
             new Dictionary<string, string> { ["X-Forwarded-Proto"] = "https" },
-            "/auth/callback");
+            "/auth/callback",
+            RejectedControl(UntrustedProxy));
         var trustedResult = await new ForwardTrustVerifier().VerifyAsync([trusted], sender);
         var trustedPrimaryStatus = statuses[0];
         statuses.Clear();
@@ -231,7 +381,10 @@ public sealed class ForwardTrustRegressionTests
             new ForwardedIdentity("http", UntrustedProxy),
             ForwardTrustHeaderExpectation.Rejected,
             new Dictionary<string, string> { ["X-Forwarded-Proto"] = "https" },
-            "/auth/callback");
+            "/auth/callback",
+            new ForwardTrustControl(
+                TrustedProxy.ToString(),
+                new ForwardedIdentity("https", TrustedProxy)));
         var untrustedResult = await new ForwardTrustVerifier().VerifyAsync([untrusted], sender);
 
         Assert.True(trustedResult.Succeeded);
@@ -310,13 +463,14 @@ public sealed class ForwardTrustRegressionTests
             {
                 ["X-Forwarded-For"] = ExpectedClient.ToString(),
                 ["X-Forwarded-Proto"] = "https"
-            });
+            },
+            control: RejectedControl(UntrustedProxy));
 
         var result = await new ForwardTrustVerifier().VerifyAsync(
             [scenario],
             static (_, _) => ValueTask.FromResult(new ForwardedIdentity("http", TrustedProxy)));
 
-        Assert.Contains(result.Failures, failure => failure.Kind == ForwardTrustFailureKind.RequestApplicationNotProven);
+        Assert.Contains(result.Failures, failure => failure.Kind == ForwardTrustFailureKind.ForwardedValueNotProven);
     }
 
     [Fact]
@@ -340,7 +494,8 @@ public sealed class ForwardTrustRegressionTests
             {
                 ["X-Forwarded-For"] = ExpectedClient.ToString(),
                 ["X-Forwarded-Proto"] = "https"
-            });
+            },
+            control: TrustedAcceptedControl());
 
         var result = await new ForwardTrustVerifier().VerifyAsync([scenario], TestHostHarness.CreateSender(host.Server));
 
@@ -361,7 +516,8 @@ public sealed class ForwardTrustRegressionTests
                 ["X-Forwarded-For"] = ExpectedClient.ToString(),
                 ["X-Forwarded-Proto"] = "https",
                 ["X-Forwarded-Host"] = "public.example"
-            });
+            },
+            control: RejectedControl(UntrustedProxy, assertHost: true));
 
         ForwardTrustRequestSender SendThroughTestHost = TestHostHarness.CreateSender(host.Server);
         var result = await new ForwardTrustVerifier().VerifyAsync([scenario], SendThroughTestHost);
@@ -383,7 +539,8 @@ public sealed class ForwardTrustRegressionTests
                     : $"{ExpectedClient}, {TrustedProxy}, {SecondTrustedProxy}",
                 ["X-Forwarded-Proto"] = hops == 2 ? "https, http" : "https, http, http",
                 ["X-Forwarded-Host"] = hops == 2 ? "public.example, internal.example" : "public.example, internal.example, edge.example"
-            });
+            },
+            control: RejectedControl(UntrustedProxy, assertHost: true));
     }
 
     private static void ConfigureMultiHop(ForwardedHeadersOptions options, int? limit, int hops)
@@ -414,5 +571,25 @@ public sealed class ForwardTrustRegressionTests
         options.KnownProxies.Add(TrustedProxy);
         options.KnownProxies.Add(SecondTrustedProxy);
         options.ForwardLimit = 1;
+    }
+
+    private void WriteProbeResult(string name, ForwardTrustResult result)
+    {
+        var failures = string.Join(",", result.Failures.Select(static failure => failure.Kind));
+        output.WriteLine($"{name}: succeeded={result.Succeeded};failures={failures}");
+    }
+
+    private static ForwardTrustControl TrustedAcceptedControl()
+    {
+        return new ForwardTrustControl(
+            TrustedProxy.ToString(),
+            new ForwardedIdentity("https", ExpectedClient));
+    }
+
+    private static ForwardTrustControl RejectedControl(IPAddress peer, bool assertHost = false)
+    {
+        return new ForwardTrustControl(
+            peer.ToString(),
+            new ForwardedIdentity("http", peer, assertHost ? "localhost" : null));
     }
 }

@@ -6,12 +6,15 @@ namespace KeelMatrix.ForwardTrust;
 /// <summary>Describes the request inputs a caller-provided test host must apply.</summary>
 public sealed class ForwardTrustRequest
 {
-    internal ForwardTrustRequest(ForwardTrustScenario scenario, IPAddress immediatePeerAddress)
+    internal ForwardTrustRequest(
+        ForwardTrustScenario scenario,
+        IPAddress immediatePeerAddress,
+        IReadOnlyDictionary<string, string> headers)
     {
         Scenario = scenario;
         ImmediatePeerAddress = immediatePeerAddress;
         Headers = new ReadOnlyDictionary<string, string>(
-            new Dictionary<string, string>(scenario.Headers, StringComparer.OrdinalIgnoreCase));
+            new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase));
         Path = scenario.Path;
     }
 

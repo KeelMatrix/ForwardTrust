@@ -61,7 +61,10 @@ public sealed class ForwardTrustQuickStartTests
                 ["X-Forwarded-For"] = "198.51.100.10",
                 ["X-Forwarded-Proto"] = "https",
                 ["X-Forwarded-Host"] = "public.example"
-            });
+            },
+            control: new ForwardTrustControl(
+                "10.0.0.20",
+                new ForwardedIdentity("http", IPAddress.Parse("10.0.0.20"), "localhost")));
 
         var result = await new ForwardTrustVerifier().VerifyAsync(
             [scenario],
@@ -93,7 +96,9 @@ public sealed class ForwardTrustQuickStartTests
 }
 ```
 
-For an untrusted-peer scenario, use `ForwardTrustHeaderExpectation.Rejected` and expect the identity that the application exposes when the forwarded values are ignored. The verifier validates every scenario before sending any request, bounds the scenario count and request timeout, proves that the sender applied the peer seam, and uses a counterfactual request for each asserted forwarded dimension.
+For an untrusted-peer scenario, use `ForwardTrustHeaderExpectation.Rejected`, expect the identity exposed when forwarded values are ignored, and set `control` to a trusted peer plus the identity those same headers must produce. An accepted scenario does the reverse: its control names an untrusted peer and the ignored-header identity. The verifier validates all scenarios before sending requests and bounds the scenario count and timeout.
+
+For every asserted dimension, ForwardTrust issues original and counterfactual requests through both peers during that scenario's own execution. The accepted side must change when the forwarded value changes, while the rejected side must remain stable. A sender that drops, rewrites, reorders, caches, or replays the requests therefore cannot pass merely by returning a peer/default identity.
 
 The repository README is the canonical user-facing source. The packed project README mirrors this install, executable quick start, scope, diagnostics, and privacy contract.
 
@@ -101,13 +106,13 @@ The repository README is the canonical user-facing source. The packed project RE
 
 `ForwardTrustResult.Failures` contains structured failures with a scenario name, trust dimension, and bounded message. The taxonomy includes trusted-header rejection, untrusted-header acceptance, scheme/host/client-address mismatch, forward-limit mismatch, malformed scenario, timed-out host/probe, host setup failure, request-application-not-proven, and forwarded-value-not-proven.
 
-`RequestApplicationNotProven` means the sender did not demonstrate that it applied two distinct no-forwarded-header peer controls. `ForwardedValueNotProven` means an asserted forwarded value matched, but changing that dimension did not change the observed dimension. Neither outcome is a pass.
+`RequestApplicationNotProven` means an asserted scenario omitted a valid scenario-local opposite-trust control or reused its primary peer. `ForwardedValueNotProven` means changing a forwarded value did not change the accepted-side observation. Neither outcome is a pass.
 
 Diagnostics do not dump cookies, authorization data, response bodies, or unrelated headers. Duplicate scenario names and contradictory expectations are rejected before any request is sent.
 
 ## What ForwardTrust proves
 
-It proves how the application pipeline interprets the forwarded headers for the peer, headers, and middleware configuration supplied by the test. It proves each asserted scheme, host, and client-address dimension independently, rather than allowing one coincidental value to vouch for another.
+It proves how the application pipeline interprets the forwarded headers for the peer, headers, and middleware configuration supplied by the test. It proves each asserted scheme, host, and client-address dimension independently with a scenario-local accepted/rejected control pair, rather than allowing a coincidental value or another scenario to vouch for the result.
 
 ## What ForwardTrust does not prove
 

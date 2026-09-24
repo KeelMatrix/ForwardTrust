@@ -17,6 +17,7 @@ public sealed class PublicSurfaceTests
 
         Assert.DoesNotContain(publicTypes, name => name.Contains("TestHost", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(nameof(ForwardTrustScenario), publicTypes);
+        Assert.Contains(nameof(ForwardTrustControl), publicTypes);
         Assert.Contains(nameof(ForwardedIdentity), publicTypes);
         Assert.Contains(nameof(ForwardTrustVerifier), publicTypes);
         Assert.Contains(nameof(ForwardTrustResult), publicTypes);
