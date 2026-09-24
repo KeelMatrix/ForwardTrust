@@ -41,7 +41,8 @@ var misconfiguredResult = await verifier.VerifyAsync(
 
 Console.WriteLine($"trusted: {(trustedResult.Succeeded ? "PASS" : "FAIL")}");
 Console.WriteLine($"untrusted: {(untrustedResult.Succeeded ? "PASS" : "FAIL")}");
-Console.WriteLine($"misconfigured boundary: {(misconfiguredResult.Succeeded ? "UNEXPECTED PASS" : misconfiguredResult.Failures[0].Kind)}");
+var trustFailure = misconfiguredResult.Failures.FirstOrDefault(failure => failure.Kind == ForwardTrustFailureKind.UntrustedHeaderAccepted);
+Console.WriteLine($"misconfigured boundary: {(misconfiguredResult.Succeeded ? "UNEXPECTED PASS" : trustFailure?.Kind.ToString() ?? misconfiguredResult.Failures[0].Kind.ToString())}");
 
 return trustedResult.Succeeded && untrustedResult.Succeeded && !misconfiguredResult.Succeeded ? 0 : 1;
 

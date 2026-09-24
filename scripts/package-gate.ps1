@@ -15,7 +15,7 @@ New-Item -ItemType Directory -Path $packages, $smokeFeed, $consumerPackages | Ou
 function Invoke-Step([string]$Command, [scriptblock]$Action) {
     Write-Output "`n> $Command"
     & $Action
-    if ($LASTEXITCODE -ne 0) { throw "Command failed with exit code $LASTEXITCODE: $Command" }
+    if ($LASTEXITCODE -ne 0) { throw "Command failed with exit code ${LASTEXITCODE}: $Command" }
 }
 
 Invoke-Step 'dotnet restore KeelMatrix.ForwardTrust.sln --configfile NuGet.config --force' {
@@ -33,8 +33,8 @@ Invoke-Step 'dotnet format KeelMatrix.ForwardTrust.sln --verify-no-changes --no-
 Invoke-Step 'dotnet pack src/KeelMatrix.ForwardTrust/KeelMatrix.ForwardTrust.csproj -c Release --no-build -o artifacts/packages' {
     dotnet pack src/KeelMatrix.ForwardTrust/KeelMatrix.ForwardTrust.csproj -c Release --no-build -o $packages
 }
-Invoke-Step 'dotnet list KeelMatrix.ForwardTrust.sln package --vulnerable --include-transitive --no-restore' {
-    dotnet list KeelMatrix.ForwardTrust.sln package --vulnerable --include-transitive --no-restore
+Invoke-Step 'dotnet list KeelMatrix.ForwardTrust.sln package --vulnerable --include-transitive --configfile NuGet.config' {
+    dotnet list KeelMatrix.ForwardTrust.sln package --vulnerable --include-transitive --configfile NuGet.config
 }
 Invoke-Step 'pwsh -NoProfile -File scripts/test-changelog-contract.ps1 -ExpectedVersion 0.1.0 -ExpectedPackageVersion 0.1.0' {
     pwsh -NoProfile -File scripts/test-changelog-contract.ps1 -ExpectedVersion 0.1.0 -ExpectedPackageVersion 0.1.0
@@ -65,6 +65,7 @@ try {
     if ($metadata.id -ne 'KeelMatrix.ForwardTrust' -or $metadata.version -ne '0.1.0') { throw 'Package identity/version mismatch.' }
     if ($metadata.description -ne 'Verify ASP.NET Core forwarded-header trust behavior with executable integration-test scenarios.') { throw 'Package description mismatch.' }
     Write-Output "Archive inspection passed: $($names.Count) entries; id=$($metadata.id); version=$($metadata.version); tfm=net8.0"
+}
 finally {
     $archive.Dispose()
 }
