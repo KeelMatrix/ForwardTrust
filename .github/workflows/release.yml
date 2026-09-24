@@ -1,0 +1,44 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Set up .NET
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Validate release tag and changelog
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME.Substring(1)
+          ./scripts/validate-release.ps1 -ExpectedVersion $version -ExpectedPackageVersion $version -ExpectedTag $env:GITHUB_REF_NAME -ExpectedCommit (git rev-parse HEAD)
+      - name: Restore
+        run: dotnet restore KeelMatrix.ForwardTrust.sln --configfile NuGet.config --force
+      - name: Build and test
+        run: |
+          dotnet build KeelMatrix.ForwardTrust.sln -c Release --no-restore
+          dotnet test KeelMatrix.ForwardTrust.sln -c Release --no-build --logger "console;verbosity=minimal"
+      - name: Pack exact product
+        run: dotnet pack src/KeelMatrix.ForwardTrust/KeelMatrix.ForwardTrust.csproj -c Release --no-build -o artifacts/packages
+      - name: Authenticate to NuGet.org
+        id: nuget-login
+        uses: NuGet/login@ebc737b6fc418a6ca0073cf116ec8dc156d8b81e # v1
+        with:
+          user: dmitriyzen
+      - name: Publish exact package
+        run: dotnet nuget push "artifacts/packages/KeelMatrix.ForwardTrust.${GITHUB_REF_NAME#v}.nupkg" --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json

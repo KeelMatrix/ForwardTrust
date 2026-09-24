@@ -1,0 +1,64 @@
+#nullable enable
+KeelMatrix.ForwardTrust.ForwardedIdentity
+KeelMatrix.ForwardTrust.ForwardedIdentity.ClientAddress.get -> System.Net.IPAddress!
+KeelMatrix.ForwardTrust.ForwardedIdentity.ForwardedIdentity(string! scheme, System.Net.IPAddress! clientAddress, string? host = null) -> void
+KeelMatrix.ForwardTrust.ForwardedIdentity.Host.get -> string?
+KeelMatrix.ForwardTrust.ForwardedIdentity.Scheme.get -> string!
+KeelMatrix.ForwardTrust.ForwardTrustDimension
+KeelMatrix.ForwardTrust.ForwardTrustDimension.ClientAddress = 3 -> KeelMatrix.ForwardTrust.ForwardTrustDimension
+KeelMatrix.ForwardTrust.ForwardTrustDimension.ForwardLimit = 4 -> KeelMatrix.ForwardTrust.ForwardTrustDimension
+KeelMatrix.ForwardTrust.ForwardTrustDimension.Headers = 0 -> KeelMatrix.ForwardTrust.ForwardTrustDimension
+KeelMatrix.ForwardTrust.ForwardTrustDimension.Host = 2 -> KeelMatrix.ForwardTrust.ForwardTrustDimension
+KeelMatrix.ForwardTrust.ForwardTrustDimension.Scenario = 5 -> KeelMatrix.ForwardTrust.ForwardTrustDimension
+KeelMatrix.ForwardTrust.ForwardTrustDimension.Scheme = 1 -> KeelMatrix.ForwardTrust.ForwardTrustDimension
+KeelMatrix.ForwardTrust.ForwardTrustFailure
+KeelMatrix.ForwardTrust.ForwardTrustFailure.Dimension.get -> KeelMatrix.ForwardTrust.ForwardTrustDimension
+KeelMatrix.ForwardTrust.ForwardTrustFailure.ExpectedValue.get -> string?
+KeelMatrix.ForwardTrust.ForwardTrustFailure.Kind.get -> KeelMatrix.ForwardTrust.ForwardTrustFailureKind
+KeelMatrix.ForwardTrust.ForwardTrustFailure.Message.get -> string!
+KeelMatrix.ForwardTrust.ForwardTrustFailure.ObservedValue.get -> string?
+KeelMatrix.ForwardTrust.ForwardTrustFailure.ScenarioName.get -> string!
+KeelMatrix.ForwardTrust.ForwardTrustFailureKind
+KeelMatrix.ForwardTrust.ForwardTrustFailureKind.ClientAddressMismatch = 4 -> KeelMatrix.ForwardTrust.ForwardTrustFailureKind
+KeelMatrix.ForwardTrust.ForwardTrustFailureKind.ForwardLimitMismatch = 5 -> KeelMatrix.ForwardTrust.ForwardTrustFailureKind
+KeelMatrix.ForwardTrust.ForwardTrustFailureKind.HostMismatch = 3 -> KeelMatrix.ForwardTrust.ForwardTrustFailureKind
+KeelMatrix.ForwardTrust.ForwardTrustFailureKind.HostProbeFailure = 7 -> KeelMatrix.ForwardTrust.ForwardTrustFailureKind
+KeelMatrix.ForwardTrust.ForwardTrustFailureKind.MalformedScenario = 6 -> KeelMatrix.ForwardTrust.ForwardTrustFailureKind
+KeelMatrix.ForwardTrust.ForwardTrustFailureKind.SchemeMismatch = 2 -> KeelMatrix.ForwardTrust.ForwardTrustFailureKind
+KeelMatrix.ForwardTrust.ForwardTrustFailureKind.TrustedHeaderRejected = 0 -> KeelMatrix.ForwardTrust.ForwardTrustFailureKind
+KeelMatrix.ForwardTrust.ForwardTrustFailureKind.UntrustedHeaderAccepted = 1 -> KeelMatrix.ForwardTrust.ForwardTrustFailureKind
+KeelMatrix.ForwardTrust.ForwardTrustHeaderExpectation
+KeelMatrix.ForwardTrust.ForwardTrustHeaderExpectation.Accepted = 0 -> KeelMatrix.ForwardTrust.ForwardTrustHeaderExpectation
+KeelMatrix.ForwardTrust.ForwardTrustHeaderExpectation.Rejected = 1 -> KeelMatrix.ForwardTrust.ForwardTrustHeaderExpectation
+KeelMatrix.ForwardTrust.ForwardTrustRequest
+KeelMatrix.ForwardTrust.ForwardTrustRequest.Headers.get -> System.Collections.Generic.IReadOnlyDictionary<string!, string!>!
+KeelMatrix.ForwardTrust.ForwardTrustRequest.ImmediatePeerAddress.get -> System.Net.IPAddress!
+KeelMatrix.ForwardTrust.ForwardTrustRequest.Path.get -> string!
+KeelMatrix.ForwardTrust.ForwardTrustRequest.Scenario.get -> KeelMatrix.ForwardTrust.ForwardTrustScenario!
+KeelMatrix.ForwardTrust.ForwardTrustRequestSender
+KeelMatrix.ForwardTrust.ForwardTrustResult
+KeelMatrix.ForwardTrust.ForwardTrustResult.Failures.get -> System.Collections.Generic.IReadOnlyList<KeelMatrix.ForwardTrust.ForwardTrustFailure!>!
+KeelMatrix.ForwardTrust.ForwardTrustResult.Scenarios.get -> System.Collections.Generic.IReadOnlyList<KeelMatrix.ForwardTrust.ForwardTrustScenarioResult!>!
+KeelMatrix.ForwardTrust.ForwardTrustResult.Succeeded.get -> bool
+KeelMatrix.ForwardTrust.ForwardTrustScenario
+KeelMatrix.ForwardTrust.ForwardTrustScenario.ExpectedIdentity.get -> KeelMatrix.ForwardTrust.ForwardedIdentity!
+KeelMatrix.ForwardTrust.ForwardTrustScenario.ForwardTrustScenario(string! name, string! immediatePeerAddress, KeelMatrix.ForwardTrust.ForwardedIdentity! expectedIdentity, KeelMatrix.ForwardTrust.ForwardTrustHeaderExpectation headerExpectation, System.Collections.Generic.IReadOnlyDictionary<string!, string!>? headers = null, string! path = "/forward-trust-probe") -> void
+KeelMatrix.ForwardTrust.ForwardTrustScenario.HeaderExpectation.get -> KeelMatrix.ForwardTrust.ForwardTrustHeaderExpectation
+KeelMatrix.ForwardTrust.ForwardTrustScenario.Headers.get -> System.Collections.Generic.IReadOnlyDictionary<string!, string!>!
+KeelMatrix.ForwardTrust.ForwardTrustScenario.ImmediatePeerAddress.get -> string!
+KeelMatrix.ForwardTrust.ForwardTrustScenario.Name.get -> string!
+KeelMatrix.ForwardTrust.ForwardTrustScenario.Path.get -> string!
+KeelMatrix.ForwardTrust.ForwardTrustScenarioResult
+KeelMatrix.ForwardTrust.ForwardTrustScenarioResult.Failures.get -> System.Collections.Generic.IReadOnlyList<KeelMatrix.ForwardTrust.ForwardTrustFailure!>!
+KeelMatrix.ForwardTrust.ForwardTrustScenarioResult.ObservedIdentity.get -> KeelMatrix.ForwardTrust.ForwardedIdentity?
+KeelMatrix.ForwardTrust.ForwardTrustScenarioResult.ScenarioName.get -> string!
+KeelMatrix.ForwardTrust.ForwardTrustScenarioResult.Succeeded.get -> bool
+KeelMatrix.ForwardTrust.ForwardTrustVerifier
+KeelMatrix.ForwardTrust.ForwardTrustVerifier.ForwardTrustVerifier(KeelMatrix.ForwardTrust.ForwardTrustVerifierOptions? options = null) -> void
+KeelMatrix.ForwardTrust.ForwardTrustVerifier.VerifyAsync(System.Collections.Generic.IEnumerable<KeelMatrix.ForwardTrust.ForwardTrustScenario!>! scenarios, KeelMatrix.ForwardTrust.ForwardTrustRequestSender! requestSender, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<KeelMatrix.ForwardTrust.ForwardTrustResult!>!
+KeelMatrix.ForwardTrust.ForwardTrustVerifierOptions
+KeelMatrix.ForwardTrust.ForwardTrustVerifierOptions.ForwardTrustVerifierOptions() -> void
+KeelMatrix.ForwardTrust.ForwardTrustVerifierOptions.MaxScenarioCount.get -> int
+KeelMatrix.ForwardTrust.ForwardTrustVerifierOptions.MaxScenarioCount.init -> void
+KeelMatrix.ForwardTrust.ForwardTrustVerifierOptions.RequestTimeout.get -> System.TimeSpan
+KeelMatrix.ForwardTrust.ForwardTrustVerifierOptions.RequestTimeout.init -> void

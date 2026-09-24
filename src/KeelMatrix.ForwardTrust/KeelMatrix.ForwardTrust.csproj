@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+    <PackageId>KeelMatrix.ForwardTrust</PackageId>
+    <Authors>KeelMatrix</Authors>
+    <Description>Verify ASP.NET Core forwarded-header trust behavior with executable integration-test scenarios.</Description>
+    <PackageTags>aspnetcore;forwarded-headers;reverse-proxy;security;testing;x-forwarded-for;x-forwarded-proto;integration-testing</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/KeelMatrix/ForwardTrust</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageProjectUrl>https://github.com/KeelMatrix/ForwardTrust#readme</PackageProjectUrl>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <PackageIcon Condition="Exists('$(MSBuildThisFileDirectory)..\..\icon.png')">icon.png</PackageIcon>
+    <EnablePublicApiAnalyzers>true</EnablePublicApiAnalyzers>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="all" />
+    <None Include="$(MSBuildThisFileDirectory)..\..\icon.png"
+          Condition="Exists('$(MSBuildThisFileDirectory)..\..\icon.png')"
+          Pack="true"
+          PackagePath="icon.png"
+          Link="icon.png" />
+    <None Include="README.md" Pack="true" PackagePath="" />
+  </ItemGroup>
+</Project>
