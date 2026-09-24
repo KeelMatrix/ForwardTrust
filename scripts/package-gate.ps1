@@ -46,6 +46,10 @@ Invoke-Step 'pwsh -NoProfile -File scripts/validate-package.ps1 -PackageDirector
     pwsh -NoProfile -File scripts/validate-package.ps1 -PackageDirectory $packages -ExpectedVersion 0.1.0
 }
 
+Invoke-Step 'pwsh -NoProfile -File scripts/validate-quickstart.ps1 -PackagePath artifacts/packages/KeelMatrix.ForwardTrust.0.1.0.nupkg -ExpectedVersion 0.1.0' {
+    pwsh -NoProfile -File scripts/validate-quickstart.ps1 -PackagePath $nupkg -ExpectedVersion 0.1.0
+}
+
 Copy-Item -LiteralPath $nupkg -Destination $smokeFeed
 if ((Get-Content 'smoke/ForwardTrust.Consumer/ForwardTrust.Consumer.csproj' -Raw) -match '<ProjectReference') { throw 'Consumer smoke must use PackageReference, not ProjectReference.' }
 $env:NUGET_PACKAGES = $consumerPackages

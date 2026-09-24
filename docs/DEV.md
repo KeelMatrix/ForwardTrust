@@ -23,6 +23,8 @@ pwsh -NoProfile -File scripts/package-gate.ps1
 
 The package consumer intentionally uses `PackageReference`, not `ProjectReference`. It prints trusted and untrusted passes plus the structured `UntrustedHeaderAccepted` failure from an unsafe boundary.
 
+The package gate also extracts the packed README Quick start code and compiles it in a fresh isolated `PackageReference` consumer, so the published example is checked as shipped.
+
 ## Release preparation
 
 The repository-controlled validator is the single changelog/version contract used before tagging and by the tag-triggered release workflow:

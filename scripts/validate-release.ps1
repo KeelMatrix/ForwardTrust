@@ -16,8 +16,42 @@ function Fail([string]$Message) {
     exit 1
 }
 
-if ($RequireIcon -and -not (Test-Path -LiteralPath (Join-Path $root 'icon.png') -PathType Leaf)) {
-    Fail "Release validation requires the founder-owned icon at: $(Join-Path $root 'icon.png')"
+function Read-BigEndianUInt32([byte[]]$Bytes, [int]$Offset) {
+    return [uint32]((([uint32]$Bytes[$Offset]) -shl 24) -bor (([uint32]$Bytes[$Offset + 1]) -shl 16) -bor (([uint32]$Bytes[$Offset + 2]) -shl 8) -bor [uint32]$Bytes[$Offset + 3])
+}
+
+function Assert-PngProperties([byte[]]$Bytes, [string]$Description) {
+    if ($Bytes.Length -gt 200KB) {
+        Fail "$Description must be no more than 200 KB (was $($Bytes.Length) bytes)."
+    }
+    if ($Bytes.Length -lt 33) {
+        Fail "$Description is not a complete PNG file."
+    }
+
+    $signature = [byte[]](137, 80, 78, 71, 13, 10, 26, 10)
+    for ($index = 0; $index -lt $signature.Length; $index++) {
+        if ($Bytes[$index] -ne $signature[$index]) {
+            Fail "$Description is not a PNG file."
+        }
+    }
+
+    if ((Read-BigEndianUInt32 $Bytes 8) -ne 13 -or [Text.Encoding]::ASCII.GetString($Bytes, 12, 4) -cne 'IHDR') {
+        Fail "$Description does not have a valid PNG IHDR header."
+    }
+
+    $width = Read-BigEndianUInt32 $Bytes 16
+    $height = Read-BigEndianUInt32 $Bytes 20
+    if ($width -ne 512 -or $height -ne 512) {
+        Fail "$Description must be exactly 512x512 pixels (was ${width}x${height})."
+    }
+}
+
+$rootIcon = Join-Path $root 'icon.png'
+if ($RequireIcon -and -not (Test-Path -LiteralPath $rootIcon -PathType Leaf)) {
+    Fail "Release validation requires the founder-owned icon at: $rootIcon"
+}
+if ($RequireIcon) {
+    Assert-PngProperties ([IO.File]::ReadAllBytes($rootIcon)) 'Repository-root icon.png'
 }
 
 if ($ExpectedVersion -notmatch '^\d+\.\d+\.\d+$') {
@@ -52,6 +86,35 @@ if ($heading -notmatch '\-\s*\d{4}-\d{2}-\d{2}') {
 }
 if ($body -match '(?i)\b(planned|unreleased|tbd|not\s+yet\s+published)\b' -or $heading -match '(?i)\b(planned|unreleased|tbd|not\s+yet\s+published)\b') {
     Fail "CHANGELOG.md entry [$ExpectedVersion] is still marked as planned or unpublished."
+}
+
+if ($ExpectedVersion -eq '0.1.0') {
+    $categoryMatches = [regex]::Matches($body, '(?m)^###\s+(.+?)\s*$')
+    $categories = @($categoryMatches | ForEach-Object { $_.Groups[1].Value.Trim() })
+    if ($categories.Count -ne 1 -or $categories[0] -cne 'Added') {
+        Fail "First-release CHANGELOG.md entry [$ExpectedVersion] must contain exactly one category: ### Added."
+    }
+
+    $remediationMarkers = [ordered]@{
+        'this removes' = '\bthis\s+removes\b'
+        'this fixes' = '\bthis\s+fixes\b'
+        'now' = '\bnow\b'
+        'no longer' = '\bno\s+longer\b'
+        'previously' = '\bpreviously\b'
+        'formerly' = '\bformerly\b'
+        'used to' = '\bused\s+to\b'
+        'fixed' = '\bfixed\b'
+        'fixes' = '\bfixes\b'
+        'corrected' = '\bcorrected\b'
+        'resolved' = '\bresolved\b'
+        'addressed' = '\baddressed\b'
+        'changed from' = '\bchanged\s+from\b'
+    }
+    foreach ($marker in $remediationMarkers.Keys) {
+        if ($body -match "(?i)$($remediationMarkers[$marker])") {
+            Fail "First-release CHANGELOG.md entry [$ExpectedVersion] contains prohibited remediation wording: '$marker'."
+        }
+    }
 }
 
 if ($ExpectedTag) {

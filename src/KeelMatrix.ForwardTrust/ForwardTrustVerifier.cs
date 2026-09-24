@@ -306,7 +306,7 @@ public sealed class ForwardTrustVerifier
 
     private static void AddScenarioSetValidationFailures(
         IReadOnlyList<ForwardTrustScenario?> scenarios,
-        IReadOnlyList<List<ForwardTrustFailure>> validationFailures)
+        List<ForwardTrustFailure>[] validationFailures)
     {
         var groups = scenarios
             .Select((scenario, index) => (scenario, index))

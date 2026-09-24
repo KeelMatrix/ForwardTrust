@@ -10,11 +10,7 @@ No unreleased changes.
 
 ### Added
 
-- Executable trusted and untrusted forwarded-header scenarios over a caller-provided ASP.NET Core test host.
-- Structured scheme, host, client-address, forward-limit, malformed-scenario, and host/probe diagnostics.
-- Bounded, deterministic, offline verification with a net8.0 package and package-consumer smoke path.
-
-### Changed
-
-- Verification now requires load-bearing peer-seam controls and counterfactual attribution for every asserted forwarded dimension; coincidental defaults are reported as unproven instead of passing.
-- Release-equivalent package validation now checks the complete `.nupkg`/`.snupkg` artifact set and fails closed when the founder-owned icon is absent.
+- Executable ASP.NET Core forwarded-header scenarios for trusted and untrusted peers, multi-hop forwarding, schemes, hosts, client addresses, malformed headers, and forward limits through a caller-provided test host.
+- Structured results that identify scenario names, trust dimensions, expected identities, observed identities, and bounded host/probe failures while excluding cookies, authorization data, arbitrary response bodies, and unrelated headers.
+- Conservative, finite, deterministic `net8.0` verification with pre-request scenario validation, scenario-local accepted/rejected controls, counterfactual attribution, bounded request timeouts, and cancellation support.
+- Offline operation with no external network, DNS, cloud-metadata, or telemetry calls, plus a NuGet package-consumer smoke path and exact package artifact validation.

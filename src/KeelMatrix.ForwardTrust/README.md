@@ -32,7 +32,7 @@ public sealed class ForwardTrustQuickStartTests
     [Fact]
     public async Task TrustedProxyScenarioPasses()
     {
-        await using var host = new HostBuilder()
+        using var host = new HostBuilder()
             .ConfigureWebHost(webHost => webHost
                 .UseTestServer()
                 .Configure(app =>

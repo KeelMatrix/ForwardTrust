@@ -31,6 +31,58 @@ if ($RequireIcon -and -not (Test-Path -LiteralPath $rootIcon -PathType Leaf)) {
     Fail "Release validation requires the founder-owned icon at: $rootIcon"
 }
 
+function Read-BigEndianUInt32([byte[]]$Bytes, [int]$Offset) {
+    return [uint32]((([uint32]$Bytes[$Offset]) -shl 24) -bor (([uint32]$Bytes[$Offset + 1]) -shl 16) -bor (([uint32]$Bytes[$Offset + 2]) -shl 8) -bor [uint32]$Bytes[$Offset + 3])
+}
+
+function Assert-PngProperties([byte[]]$Bytes, [string]$Description) {
+    if ($Bytes.Length -gt 200KB) {
+        Fail "$Description must be no more than 200 KB (was $($Bytes.Length) bytes)."
+    }
+    if ($Bytes.Length -lt 33) {
+        Fail "$Description is not a complete PNG file."
+    }
+
+    $signature = [byte[]](137, 80, 78, 71, 13, 10, 26, 10)
+    for ($index = 0; $index -lt $signature.Length; $index++) {
+        if ($Bytes[$index] -ne $signature[$index]) {
+            Fail "$Description is not a PNG file."
+        }
+    }
+
+    if ((Read-BigEndianUInt32 $Bytes 8) -ne 13 -or [Text.Encoding]::ASCII.GetString($Bytes, 12, 4) -cne 'IHDR') {
+        Fail "$Description does not have a valid PNG IHDR header."
+    }
+
+    $width = Read-BigEndianUInt32 $Bytes 16
+    $height = Read-BigEndianUInt32 $Bytes 20
+    if ($width -ne 512 -or $height -ne 512) {
+        Fail "$Description must be exactly 512x512 pixels (was ${width}x${height})."
+    }
+}
+
+function Read-ArchiveBytes($Archive, [string]$EntryName) {
+    $entries = @($Archive.Entries | Where-Object FullName -eq $EntryName)
+    if ($entries.Count -ne 1) {
+        Fail "Archive must contain exactly $EntryName."
+    }
+
+    $stream = $entries[0].Open()
+    $memory = New-Object IO.MemoryStream
+    try {
+        $stream.CopyTo($memory)
+        return $memory.ToArray()
+    }
+    finally {
+        $stream.Dispose()
+        $memory.Dispose()
+    }
+}
+
+if ($RequireIcon) {
+    Assert-PngProperties ([IO.File]::ReadAllBytes($rootIcon)) 'Repository-root icon.png'
+}
+
 $artifacts = @(Get-ChildItem -LiteralPath $packageDirectoryPath -File)
 $expectedArtifactNames = @($nupkgName, $snupkgName)
 $unexpectedArtifacts = @($artifacts | Where-Object { $_.Name -notin $expectedArtifactNames })
@@ -104,6 +156,9 @@ function Assert-Nupkg($path) {
         if ($metadata.readme -ne 'README.md') { Fail 'Package README metadata is missing or incorrect.' }
         if ($metadata.license.type -ne 'expression' -or $metadata.license.'#text' -ne 'MIT') { Fail 'Package MIT license metadata is missing or incorrect.' }
         if ($RequireIcon -and $metadata.icon -ne 'icon.png') { Fail 'Required package icon metadata is missing or incorrect.' }
+        if ($RequireIcon) {
+            Assert-PngProperties (Read-ArchiveBytes $archive 'icon.png') 'Embedded package icon.png'
+        }
         $tfmEntries = @($names | Where-Object { $_ -match '^lib/([^/]+)/' } | ForEach-Object { ($_ -split '/')[1] } | Select-Object -Unique)
         if ($tfmEntries.Count -ne 1 -or $tfmEntries[0] -ne 'net8.0') { Fail "Package target framework entries are not exactly net8.0: $($tfmEntries -join ', ')" }
         if (-not (Test-Path -LiteralPath $rootIcon -PathType Leaf) -and 'icon.png' -in $names) { Fail 'Package contains an icon without the required repository-root icon.' }

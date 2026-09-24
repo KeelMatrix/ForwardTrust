@@ -28,6 +28,31 @@ try {
     Invoke-Contract $temp $false
 
     Set-Content -Path (Join-Path $temp 'CHANGELOG.md') -Value "# Changelog`n`n## [0.1.0] - 2026-09-24`n`n### Added`n`n- Initial package." -Encoding utf8
+    Invoke-Contract $temp $true
+
+    Set-Content -Path (Join-Path $temp 'CHANGELOG.md') -Value "# Changelog`n`n## [0.1.0] - 2026-09-24`n`n### Added`n`n- Initial package.`n`n### Fixed`n`n- A remediation note." -Encoding utf8
+    Invoke-Contract $temp $false
+
+    $remediationMarkers = @(
+        'now',
+        'no longer',
+        'previously',
+        'formerly',
+        'used to',
+        'fixed',
+        'fixes',
+        'corrected',
+        'resolved',
+        'addressed',
+        'this removes',
+        'this fixes',
+        'changed from'
+    )
+    foreach ($marker in $remediationMarkers) {
+        Set-Content -Path (Join-Path $temp 'CHANGELOG.md') -Value "# Changelog`n`n## [0.1.0] - 2026-09-24`n`n### Added`n`n- This entry contains $marker wording." -Encoding utf8
+        Invoke-Contract $temp $false
+    }
+
     Set-Content -Path (Join-Path $temp 'Directory.Build.props') -Value '<Project><PropertyGroup><Version>0.2.0</Version></PropertyGroup></Project>' -Encoding utf8
     Invoke-Contract $temp $false
 }
@@ -35,4 +60,4 @@ finally {
     Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-Write-Output 'Changelog contract tests passed: finalized entry, planned rejection, version mismatch rejection.'
+Write-Output 'Changelog contract tests passed: finalized entry, planned rejection, non-Added category rejection, all remediation-marker rejections, and version mismatch rejection.'
