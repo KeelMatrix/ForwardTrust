@@ -26,7 +26,7 @@ jobs:
         shell: pwsh
         run: |
           $version = $env:GITHUB_REF_NAME.Substring(1)
-          ./scripts/validate-release.ps1 -ExpectedVersion $version -ExpectedPackageVersion $version -ExpectedTag $env:GITHUB_REF_NAME -ExpectedCommit (git rev-parse HEAD)
+          ./scripts/validate-release.ps1 -ExpectedVersion $version -ExpectedPackageVersion $version -ExpectedTag $env:GITHUB_REF_NAME -ExpectedCommit (git rev-parse HEAD) -RequireIcon
       - name: Restore
         run: dotnet restore KeelMatrix.ForwardTrust.sln --configfile NuGet.config --force
       - name: Build and test

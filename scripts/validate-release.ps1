@@ -4,7 +4,8 @@ param(
     [Parameter(Mandatory = $true)][string]$ExpectedVersion,
     [Parameter(Mandatory = $true)][string]$ExpectedPackageVersion,
     [string]$ExpectedTag,
-    [string]$ExpectedCommit
+    [string]$ExpectedCommit,
+    [switch]$RequireIcon
 )
 
 $ErrorActionPreference = 'Stop'
@@ -13,6 +14,10 @@ $root = (Resolve-Path $RepositoryRoot).Path
 function Fail([string]$Message) {
     Write-Error $Message
     exit 1
+}
+
+if ($RequireIcon -and -not (Test-Path -LiteralPath (Join-Path $root 'icon.png') -PathType Leaf)) {
+    Fail "Release validation requires the founder-owned icon at: $(Join-Path $root 'icon.png')"
 }
 
 if ($ExpectedVersion -notmatch '^\d+\.\d+\.\d+$') {
