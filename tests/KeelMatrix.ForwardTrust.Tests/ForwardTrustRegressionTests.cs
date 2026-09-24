@@ -210,6 +210,79 @@ public sealed class ForwardTrustRegressionTests
     }
 
     [Fact]
+    public async Task UnrelatedCounterfactualChangeFailsClosed()
+    {
+        var scenario = new ForwardTrustScenario(
+            "unrelated-counterfactual-change",
+            TrustedProxy.ToString(),
+            new ForwardedIdentity("http", TrustedProxy, "public.example"),
+            ForwardTrustHeaderExpectation.Accepted,
+            new Dictionary<string, string>
+            {
+                ["X-Forwarded-Host"] = "public.example"
+            },
+            control: RejectedControl(UntrustedProxy, assertHost: true));
+        var calls = 0;
+
+        var result = await new ForwardTrustVerifier().VerifyAsync(
+            [scenario],
+            (_, cancellationToken) =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                calls++;
+                return ValueTask.FromResult(calls switch
+                {
+                    1 => scenario.ExpectedIdentity,
+                    2 => scenario.Control!.ExpectedIdentity,
+                    3 => new ForwardedIdentity("http", TrustedProxy, "counterfactual.example"),
+                    _ => scenario.Control!.ExpectedIdentity
+                });
+            });
+
+        WriteProbeResult(scenario.Name, result);
+        Assert.False(result.Succeeded);
+        Assert.Contains(result.Failures, failure =>
+            failure.Kind == ForwardTrustFailureKind.ForwardedValueNotProven
+            && failure.Message.StartsWith("Reissuing an identical", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task CounterfactualMustProduceTheAssertedHeaderValue()
+    {
+        var scenario = new ForwardTrustScenario(
+            "unrelated-stable-counterfactual-change",
+            TrustedProxy.ToString(),
+            new ForwardedIdentity("http", TrustedProxy, "public.example"),
+            ForwardTrustHeaderExpectation.Accepted,
+            new Dictionary<string, string>
+            {
+                ["X-Forwarded-Host"] = "public.example"
+            },
+            control: RejectedControl(UntrustedProxy, assertHost: true));
+
+        var result = await new ForwardTrustVerifier().VerifyAsync(
+            [scenario],
+            (request, cancellationToken) =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (request.ImmediatePeerAddress.Equals(UntrustedProxy))
+                {
+                    return ValueTask.FromResult(scenario.Control!.ExpectedIdentity);
+                }
+
+                var host = request.Headers["X-Forwarded-Host"] == "public.example"
+                    ? "public.example"
+                    : "unrelated.example";
+                return ValueTask.FromResult(new ForwardedIdentity("http", TrustedProxy, host));
+            });
+
+        Assert.False(result.Succeeded);
+        Assert.Contains(result.Failures, failure =>
+            failure.Kind == ForwardTrustFailureKind.ForwardedValueNotProven
+            && failure.Message.Contains("generated forwarded-header counterfactual", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task EachForwardedDimensionNeedsItsOwnAttribution()
     {
         var scenario = new ForwardTrustScenario(

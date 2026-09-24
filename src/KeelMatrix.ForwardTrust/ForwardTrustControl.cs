@@ -1,6 +1,6 @@
 ﻿namespace KeelMatrix.ForwardTrust;
 
-/// <summary>Defines the opposite-trust peer observation that makes one scenario's verdict causal.</summary>
+/// <summary>Defines the opposite-trust peer observation used as evidence for one scenario.</summary>
 public sealed class ForwardTrustControl
 {
     /// <summary>Creates an opposite-trust control for the scenario's declared headers.</summary>

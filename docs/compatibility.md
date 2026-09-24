@@ -10,11 +10,13 @@ ForwardTrust ships only a `net8.0` asset and is tested against the ASP.NET Core 
 
 ASP.NET Core 8.0.17 introduced hardening that ignores `X-Forwarded-*` values from unknown proxies. The v1 fixtures use `ForwardedHeadersOptions.KnownProxies`, `KnownNetworks`, and `ForwardLimit`; on net8.0, `ForwardLimit` defaults to `1`, and headers are processed right-to-left. ForwardTrust does not alter any of those options.
 
-Each scenario with an asserted forwarded dimension declares its own opposite-trust peer and expected identity. For every asserted scheme, host, and client-address header, the verifier sends the original and a counterfactual value through both peers. The accepted path must change that dimension and the rejected path must remain stable. Missing controls, peer/default echoes, dropped or rewritten headers, and stale observations are therefore not proof.
+Each scenario with an asserted forwarded dimension declares its own opposite-trust peer and expected identity. For every asserted scheme, host, and client-address header, the verifier sends the original and a generated counterfactual through both peers, reissues each identical request, and requires stable full identities. The accepted path must match the exact counterfactual value and the rejected path must remain stable. These controls detect missing controls, peer/default echoes, and observable rewrite, replay, ordering, timing, randomness, or state drift.
 
 ## Test-host peer seam
 
 The supported seam is caller-owned: `TestServer.SendAsync(Action<HttpContext>, CancellationToken)` can assign `HttpContext.Connection.RemoteIpAddress` before the real pipeline runs. ForwardTrust exposes only a framework-neutral request/probe delegate, so consumers may use TestServer or their own test host without a runtime TestHost dependency.
+
+A verdict assumes that delegate executes every supplied request against the application pipeline. Replays and counterfactuals detect observable non-execution and non-causal drift, but no black-box verifier can distinguish a real pipeline from a deliberately fabricated sender that returns the same self-consistent identity for every generated request.
 
 ## Primary sources
 

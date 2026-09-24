@@ -12,5 +12,5 @@ No unreleased changes.
 
 - Executable ASP.NET Core forwarded-header scenarios for trusted and untrusted peers, multi-hop forwarding, schemes, hosts, client addresses, malformed headers, and forward limits through a caller-provided test host.
 - Structured results that identify scenario names, trust dimensions, expected identities, observed identities, and bounded host/probe failures while excluding cookies, authorization data, arbitrary response bodies, and unrelated headers.
-- Conservative, finite, deterministic `net8.0` verification with pre-request scenario validation, scenario-local accepted/rejected controls, counterfactual attribution, bounded request timeouts, and cancellation support.
+- Conservative, finite `net8.0` verification with pre-request scenario validation, scenario-local accepted/rejected controls, exact and repeatable counterfactual observations, bounded request timeouts, and cancellation support under the explicit contract that the caller-provided sender executes every request against the application pipeline; deliberately fabricated, self-consistent senders are outside the detectable boundary.
 - Offline operation with no external network, DNS, cloud-metadata, or telemetry calls, plus a NuGet package-consumer smoke path and exact package artifact validation.

@@ -21,7 +21,7 @@ The full package gate runs the same restore/build/test/format path, packs the ex
 pwsh -NoProfile -File scripts/package-gate.ps1
 ```
 
-The package consumer intentionally uses `PackageReference`, not `ProjectReference`. It prints trusted and untrusted passes plus the structured `UntrustedHeaderAccepted` failure from an unsafe boundary.
+The package consumer intentionally uses `PackageReference`, not `ProjectReference`. It prints trusted and untrusted passes, the explicit executed-request sender contract, and the structured `UntrustedHeaderAccepted` failure from an unsafe boundary.
 
 The package gate also extracts the packed README Quick start code and compiles it in a fresh isolated `PackageReference` consumer, so the published example is checked as shipped.
 

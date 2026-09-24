@@ -47,6 +47,7 @@ var misconfiguredResult = await verifier.VerifyAsync(
 
 Console.WriteLine($"trusted: {(trustedResult.Succeeded ? "PASS" : "FAIL")}");
 Console.WriteLine($"untrusted: {(untrustedResult.Succeeded ? "PASS" : "FAIL")}");
+Console.WriteLine("sender contract: executed every supplied request");
 var trustFailure = misconfiguredResult.Failures.FirstOrDefault(failure => failure.Kind == ForwardTrustFailureKind.UntrustedHeaderAccepted);
 Console.WriteLine($"misconfigured boundary: {(misconfiguredResult.Succeeded ? "UNEXPECTED PASS" : trustFailure?.Kind.ToString() ?? misconfiguredResult.Failures[0].Kind.ToString())}");
 
