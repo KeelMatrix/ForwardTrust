@@ -330,6 +330,11 @@ public sealed class ForwardTrustVerifier
         }
 
         var failures = new List<ForwardTrustFailure>();
+        if (!Enum.IsDefined(scenario.HeaderExpectation))
+        {
+            failures.Add(Malformed(scenario, "The forwarded-header expectation must be Accepted or Rejected."));
+        }
+
         if (string.IsNullOrWhiteSpace(scenario.Name) || scenario.Name.Length > MaxNameLength)
         {
             failures.Add(Malformed(scenario, "Scenario names must be non-empty and no longer than 128 characters."));

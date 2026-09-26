@@ -138,6 +138,33 @@ public sealed class ForwardTrustVerifierTests
     }
 
     [Fact]
+    public async Task UndefinedHeaderExpectationIsReportedBeforeSenderRuns()
+    {
+        var calls = 0;
+        var malformed = new ForwardTrustScenario(
+            "undefined-header-expectation",
+            TrustedProxy.ToString(),
+            new ForwardedIdentity("https", TrustedProxy),
+            (ForwardTrustHeaderExpectation)42,
+            new Dictionary<string, string> { ["X-Forwarded-Proto"] = "https" },
+            control: RejectedControl(UntrustedProxy));
+
+        var result = await new ForwardTrustVerifier().VerifyAsync(
+            [malformed],
+            (_, _) =>
+            {
+                calls++;
+                return ValueTask.FromResult(new ForwardedIdentity("https", TrustedProxy));
+            });
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(0, calls);
+        Assert.Contains(result.Failures, failure =>
+            failure.Kind == ForwardTrustFailureKind.MalformedScenario
+            && failure.Message.Contains("Accepted or Rejected", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task MissingOrSamePeerControlsAreRejectedBeforeSenderRuns()
     {
         var calls = 0;
