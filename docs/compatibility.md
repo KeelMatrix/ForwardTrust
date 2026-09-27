@@ -12,6 +12,10 @@ ASP.NET Core 8.0.17 introduced hardening that ignores `X-Forwarded-*` values fro
 
 Each scenario with an asserted forwarded dimension declares its own opposite-trust peer and expected identity. For every asserted scheme, host, and client-address header, the verifier sends the original and a generated counterfactual through both peers, reissues each identical request, and requires stable full identities. The accepted path must match the exact counterfactual value and the rejected path must remain stable. These controls detect missing controls, peer/default echoes, and observable rewrite, replay, ordering, timing, randomness, or state drift.
 
+Forwarded hop depth is the maximum comma-separated chain length in any asserted forwarded dimension, not the sum across `X-Forwarded-For`, `X-Forwarded-Proto`, and `X-Forwarded-Host`. For example, a two-hop scenario can use `X-Forwarded-For: 198.51.100.10, 10.0.0.10`, `X-Forwarded-Proto: https, http`, and `X-Forwarded-Host: public.example, internal.example` with the application's `ForwardLimit` set to `2`; a one-hop request with one value in each field is not treated as a three-hop request.
+
+The verifier requires at least one scenario, stops lazy scenario intake at the first item beyond `MaxScenarioCount`, and bounds each scenario to 64 headers, 64 KiB of aggregate UTF-8 header-name/value bytes, 256-character names, and 16 KiB values. Header names use HTTP token syntax and field values reject control characters other than horizontal tab and legal visible/obs-text characters. A violation is reported as `MalformedScenario` before any caller-provided sender invocation.
+
 ## Test-host peer seam
 
 The supported seam is caller-owned: `TestServer.SendAsync(Action<HttpContext>, CancellationToken)` can assign `HttpContext.Connection.RemoteIpAddress` before the real pipeline runs. ForwardTrust exposes only a framework-neutral request/probe delegate, so consumers may use TestServer or their own test host without a runtime TestHost dependency.

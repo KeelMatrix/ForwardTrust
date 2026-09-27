@@ -33,8 +33,17 @@ Invoke-Step 'dotnet format KeelMatrix.ForwardTrust.sln --verify-no-changes --no-
 Invoke-Step 'dotnet pack src/KeelMatrix.ForwardTrust/KeelMatrix.ForwardTrust.csproj -c Release --no-build -o artifacts/packages' {
     dotnet pack src/KeelMatrix.ForwardTrust/KeelMatrix.ForwardTrust.csproj -c Release --no-build -o $packages
 }
-Invoke-Step 'dotnet list KeelMatrix.ForwardTrust.sln package --vulnerable --include-transitive --configfile NuGet.config' {
-    dotnet list KeelMatrix.ForwardTrust.sln package --vulnerable --include-transitive --configfile NuGet.config
+Invoke-Step 'pwsh -NoProfile -File scripts/Normalize-PackageArchives.ps1 -PackageDirectory artifacts/packages' {
+    pwsh -NoProfile -File scripts/Normalize-PackageArchives.ps1 -PackageDirectory $packages
+}
+Invoke-Step 'pwsh -NoProfile -File scripts/Test-VulnerabilityAudit.ps1' {
+    pwsh -NoProfile -File scripts/Test-VulnerabilityAudit.ps1
+}
+Invoke-Step 'pwsh -NoProfile -File scripts/Invoke-VulnerabilityAudit.ps1 -ReportPath artifacts/vulnerability-audit.json' {
+    pwsh -NoProfile -File scripts/Invoke-VulnerabilityAudit.ps1 -ReportPath (Join-Path $artifactRoot 'vulnerability-audit.json')
+}
+Invoke-Step 'pwsh -NoProfile -File scripts/Test-PackageReproducibility.ps1 -PackageDirectory artifacts/packages -ExpectedVersion 0.1.0' {
+    pwsh -NoProfile -File scripts/Test-PackageReproducibility.ps1 -PackageDirectory $packages -ExpectedVersion '0.1.0'
 }
 Invoke-Step 'pwsh -NoProfile -File scripts/test-changelog-contract.ps1 -ExpectedVersion 0.1.0 -ExpectedPackageVersion 0.1.0' {
     pwsh -NoProfile -File scripts/test-changelog-contract.ps1 -ExpectedVersion 0.1.0 -ExpectedPackageVersion 0.1.0

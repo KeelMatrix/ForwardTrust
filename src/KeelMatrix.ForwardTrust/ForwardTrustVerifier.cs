@@ -8,7 +8,7 @@ public sealed class ForwardTrustVerifier
 {
     private const int MaxNameLength = 128;
     private const int MaxPathLength = 2048;
-    private const int MaxHeaderLength = 16 * 1024;
+    private const int MaxHeaderLength = ForwardTrustScenario.MaxHeaderValueLength;
     private readonly ForwardTrustVerifierOptions options;
 
     /// <summary>Creates a verifier with conservative finite limits.</summary>
@@ -38,14 +38,35 @@ public sealed class ForwardTrustVerifier
         ArgumentNullException.ThrowIfNull(scenarios);
         ArgumentNullException.ThrowIfNull(requestSender);
 
-        var scenarioList = scenarios.Cast<ForwardTrustScenario?>().ToArray();
-        if (scenarioList.Length > options.MaxScenarioCount)
+        cancellationToken.ThrowIfCancellationRequested();
+        var scenarioList = new List<ForwardTrustScenario?>(Math.Min(options.MaxScenarioCount, 32));
+        using var enumerator = scenarios.GetEnumerator();
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!enumerator.MoveNext())
+            {
+                break;
+            }
+
+            scenarioList.Add(enumerator.Current);
+            if (scenarioList.Count > options.MaxScenarioCount)
+            {
+                return CreateSingleFailureResult(
+                    "verification",
+                    ForwardTrustFailureKind.MalformedScenario,
+                    ForwardTrustDimension.Scenario,
+                    $"The scenario set exceeds the configured maximum of {options.MaxScenarioCount} entries.");
+            }
+        }
+
+        if (scenarioList.Count == 0)
         {
             return CreateSingleFailureResult(
                 "verification",
                 ForwardTrustFailureKind.MalformedScenario,
                 ForwardTrustDimension.Scenario,
-                $"The scenario set contains {scenarioList.Length} entries, exceeding the configured maximum of {options.MaxScenarioCount}.");
+                "The scenario set must contain at least one scenario.");
         }
 
         var validationFailures = scenarioList
@@ -54,8 +75,8 @@ public sealed class ForwardTrustVerifier
             .ToArray();
         AddScenarioSetValidationFailures(scenarioList, validationFailures);
 
-        var results = new List<ForwardTrustScenarioResult>(scenarioList.Length);
-        for (var index = 0; index < scenarioList.Length; index++)
+        var results = new List<ForwardTrustScenarioResult>(scenarioList.Count);
+        for (var index = 0; index < scenarioList.Count; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var scenario = scenarioList[index];
@@ -330,6 +351,11 @@ public sealed class ForwardTrustVerifier
         }
 
         var failures = new List<ForwardTrustFailure>();
+        if (scenario.HeaderLimitsExceeded)
+        {
+            failures.Add(Malformed(scenario, "The request headers exceed the bounded count or aggregate-size limit."));
+        }
+
         if (!Enum.IsDefined(scenario.HeaderExpectation))
         {
             failures.Add(Malformed(scenario, "The forwarded-header expectation must be Accepted or Rejected."));
@@ -356,16 +382,11 @@ public sealed class ForwardTrustVerifier
 
         foreach (var header in scenario.Headers)
         {
-            if (string.IsNullOrWhiteSpace(header.Key)
-                || header.Key.Length > 256
-                || header.Key.Any(char.IsWhiteSpace)
-                || header.Key.Contains(':')
-                || header.Key.Contains('\r')
-                || header.Key.Contains('\n')
+            if (!IsValidHeaderName(header.Key)
+                || header.Key.Length > ForwardTrustScenario.MaxHeaderNameLength
                 || header.Value is null
                 || header.Value.Length > MaxHeaderLength
-                || header.Value.Contains('\r')
-                || header.Value.Contains('\n'))
+                || !IsValidHeaderValue(header.Value))
             {
                 failures.Add(Malformed(scenario, "A header name or value is invalid or exceeds the bounded request limit."));
                 break;
@@ -647,13 +668,50 @@ public sealed class ForwardTrustVerifier
             .Where(static header => header.Key.Equals("X-Forwarded-For", StringComparison.OrdinalIgnoreCase)
                 || header.Key.Equals("X-Forwarded-Proto", StringComparison.OrdinalIgnoreCase)
                 || header.Key.Equals("X-Forwarded-Host", StringComparison.OrdinalIgnoreCase))
-            .SelectMany(static header => SplitHeaderValues(header.Value))
-            .Count();
+            .Select(static header => SplitHeaderValues(header.Value).Length)
+            .DefaultIfEmpty()
+            .Max();
     }
 
     private static string[] SplitHeaderValues(string value)
     {
         return value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+    }
+
+    private static bool IsValidHeaderName(string? name)
+    {
+        if (string.IsNullOrEmpty(name))
+        {
+            return false;
+        }
+
+        foreach (var character in name)
+        {
+            var isAlphaNumeric = character is >= 'a' and <= 'z'
+                or >= 'A' and <= 'Z'
+                or >= '0' and <= '9';
+            if (!isAlphaNumeric && "!#$%&'*+-.^_`|~".IndexOf(character) < 0)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool IsValidHeaderValue(string value)
+    {
+        foreach (var character in value)
+        {
+            if (character == '\t' || character is >= '\x20' and <= '\x7e' or >= '\x80' and <= '\xff')
+            {
+                continue;
+            }
+
+            return false;
+        }
+
+        return true;
     }
 
     private static ForwardTrustFailure Malformed(ForwardTrustScenario scenario, string message)

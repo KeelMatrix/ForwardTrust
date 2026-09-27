@@ -133,7 +133,7 @@ function Assert-Nupkg($path) {
             "lib/net8.0/$packageId.xml",
             'README.md'
         )
-        $allowed += @($names | Where-Object { $_ -match '^package/services/metadata/core-properties/[^/]+\.psmdcp$' })
+        $allowed += 'package/services/metadata/core-properties/nuget.psmdcp'
         if ($RequireIcon) {
             $allowed += 'icon.png'
         }
@@ -147,6 +147,10 @@ function Assert-Nupkg($path) {
         if ($RequireIcon) { $required += 'icon.png' }
         foreach ($entry in $required) {
             if ($entry -notin $names) { Fail "Required .nupkg entry is missing: $entry" }
+        }
+        if ((@($names | Where-Object { $_ -match '^package/services/metadata/core-properties/[^/]+\.psmdcp$' }).Count -ne 1) -or
+            ('package/services/metadata/core-properties/nuget.psmdcp' -notin $names)) {
+            Fail 'The .nupkg core-properties entry must be deterministic: package/services/metadata/core-properties/nuget.psmdcp.'
         }
 
         $nuspecXml = Read-Nuspec $archive "$packageId.nuspec"
@@ -174,12 +178,15 @@ function Assert-Snupkg($path) {
     try {
         $names = @($archive.Entries | ForEach-Object FullName)
         Assert-NoSensitiveEntries $names
-        $allowed = @('_rels/.rels', '[Content_Types].xml', "$packageId.nuspec", "lib/net8.0/$packageId.pdb")
-        $allowed += @($names | Where-Object { $_ -match '^package/services/metadata/core-properties/[^/]+\.psmdcp$' })
+        $allowed = @('_rels/.rels', '[Content_Types].xml', "$packageId.nuspec", "lib/net8.0/$packageId.pdb", 'package/services/metadata/core-properties/nuget.psmdcp')
         $unexpected = @($names | Where-Object { $_ -notin $allowed })
         if ($unexpected.Count -gt 0) { Fail "Unexpected .snupkg entries: $($unexpected -join ', ')" }
         foreach ($entry in @('_rels/.rels', '[Content_Types].xml', "$packageId.nuspec", "lib/net8.0/$packageId.pdb")) {
             if ($entry -notin $names) { Fail "Required .snupkg entry is missing: $entry" }
+        }
+        if ((@($names | Where-Object { $_ -match '^package/services/metadata/core-properties/[^/]+\.psmdcp$' }).Count -ne 1) -or
+            ('package/services/metadata/core-properties/nuget.psmdcp' -notin $names)) {
+            Fail 'The .snupkg core-properties entry must be deterministic: package/services/metadata/core-properties/nuget.psmdcp.'
         }
         $nuspecXml = Read-Nuspec $archive "$packageId.nuspec"
         if ($nuspecXml.package.metadata.id -ne $packageId -or $nuspecXml.package.metadata.version -ne $ExpectedVersion) { Fail '.snupkg identity/version mismatch.' }

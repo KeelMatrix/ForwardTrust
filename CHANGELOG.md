@@ -4,7 +4,10 @@ All notable changes to KeelMatrix.ForwardTrust are documented here.
 
 ## [Unreleased]
 
-No unreleased changes.
+### Changed
+
+- Bounded scenario intake and header validation now reject empty, oversized, lazy-over-limit, and invalid HTTP input before invoking the caller-provided sender; forward-limit diagnostics use the maximum forwarded chain depth.
+- Local and release package gates emit a JSON vulnerability report, fail closed on any reported advisory, normalize NuGet core-properties entries, and require byte-identical repeated `.nupkg` and `.snupkg` output.
 
 ## [0.1.0] - 2026-09-24
 

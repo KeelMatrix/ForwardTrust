@@ -15,7 +15,7 @@ dotnet test KeelMatrix.ForwardTrust.sln -c Release --no-build --logger "console;
 dotnet format KeelMatrix.ForwardTrust.sln --verify-no-changes --no-restore
 ```
 
-The full package gate runs the same restore/build/test/format path, packs the exact product, inspects both archives, runs the vulnerability audit, exercises the changelog contract tests, and restores the consumer from an isolated local feed:
+The full package gate runs the same restore/build/test/format path, packs the exact product, normalizes the generated NuGet core-properties entry, inspects both archives, runs the fail-closed JSON vulnerability audit and its synthetic clean/vulnerable fixtures, checks repeated pack byte identity, exercises the changelog contract tests, and restores the consumer from an isolated local feed:
 
 ```powershell
 pwsh -NoProfile -File scripts/package-gate.ps1
@@ -25,6 +25,8 @@ The package consumer intentionally uses `PackageReference`, not `ProjectReferenc
 
 The package gate also extracts the packed README Quick start code and compiles it in a fresh isolated `PackageReference` consumer, so the published example is checked as shipped.
 
+The vulnerability audit has no build/test-only exception path: any package advisory in the JSON report fails the gate. The repeat-pack check compares normalized `.nupkg` and `.snupkg` hashes from the same Release inputs.
+
 ## Release preparation
 
 The repository-controlled validator is the single changelog/version contract used before tagging and by the tag-triggered release workflow:
@@ -33,4 +35,4 @@ The repository-controlled validator is the single changelog/version contract use
 pwsh -NoProfile -File scripts/test-changelog-contract.ps1 -ExpectedVersion 0.1.0 -ExpectedPackageVersion 0.1.0
 ```
 
-No tag or publication is part of local validation. GitHub Actions is intentionally manual-only for CI and tag-only for release while the repository is private.
+No tag or publication is part of local validation. Public GitHub Actions CI runs on pushes and pull requests; the release workflow remains tag-only and still requires the separate founder release authorization gates.

@@ -226,6 +226,263 @@ public sealed class ForwardTrustVerifierTests
 
         Assert.Contains(result.Failures, failure => failure.Kind == ForwardTrustFailureKind.SchemeMismatch && failure.Dimension == ForwardTrustDimension.Scheme);
         Assert.Contains(result.Failures, failure => failure.Kind == ForwardTrustFailureKind.HostMismatch && failure.Dimension == ForwardTrustDimension.Host);
+        Assert.DoesNotContain(result.Failures, failure => failure.Kind == ForwardTrustFailureKind.ForwardLimitMismatch);
+    }
+
+    [Fact]
+    public async Task EmptyScenarioSetFailsClosedWithoutSenderInvocation()
+    {
+        var calls = 0;
+
+        var result = await new ForwardTrustVerifier().VerifyAsync(
+            Array.Empty<ForwardTrustScenario>(),
+            (_, _) =>
+            {
+                calls++;
+                return ValueTask.FromResult(new ForwardedIdentity("http", IPAddress.Loopback));
+            });
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(0, calls);
+        Assert.Contains(result.Failures, failure => failure.Kind == ForwardTrustFailureKind.MalformedScenario);
+    }
+
+    [Fact]
+    public async Task ScenarioLimitStopsEnumerationAtOneOverTheConfiguredMaximum()
+    {
+        var enumerated = 0;
+        var calls = 0;
+        var first = Scenario("first", TrustedProxy, ForwardTrustHeaderExpectation.Rejected, TrustedProxy, "http", null);
+        var second = Scenario("second", TrustedProxy, ForwardTrustHeaderExpectation.Rejected, TrustedProxy, "http", null);
+
+        IEnumerable<ForwardTrustScenario> Scenarios()
+        {
+            enumerated++;
+            yield return first;
+            enumerated++;
+            yield return second;
+            throw new InvalidOperationException("The verifier enumerated beyond the configured intake bound.");
+        }
+
+        var result = await new ForwardTrustVerifier(new ForwardTrustVerifierOptions { MaxScenarioCount = 1 }).VerifyAsync(
+            Scenarios(),
+            (_, _) =>
+            {
+                calls++;
+                return ValueTask.FromResult(new ForwardedIdentity("http", IPAddress.Loopback));
+            });
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(2, enumerated);
+        Assert.Equal(0, calls);
+        Assert.Contains(result.Failures, failure => failure.Kind == ForwardTrustFailureKind.MalformedScenario);
+    }
+
+    [Fact]
+    public async Task PreCancelledVerificationDoesNotEnumerateScenarios()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => new ForwardTrustVerifier().VerifyAsync(
+            new ThrowOnEnumeration(),
+            (_, _) => ValueTask.FromResult(new ForwardedIdentity("http", IPAddress.Loopback)),
+            cancellation.Token));
+    }
+
+    [Fact]
+    public async Task HeaderCountLimitRejectsBeforeSenderInvocation()
+    {
+        var calls = 0;
+        var headers = Enumerable.Range(0, 65).ToDictionary(index => $"X-Test-{index}", _ => "value");
+        var scenario = new ForwardTrustScenario(
+            "too-many-headers",
+            UntrustedProxy.ToString(),
+            new ForwardedIdentity("http", UntrustedProxy),
+            ForwardTrustHeaderExpectation.Rejected,
+            headers);
+
+        var result = await new ForwardTrustVerifier().VerifyAsync(
+            [scenario],
+            (_, _) =>
+            {
+                calls++;
+                return ValueTask.FromResult(new ForwardedIdentity("http", UntrustedProxy));
+            });
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(0, calls);
+        Assert.Contains(result.Failures, failure => failure.Kind == ForwardTrustFailureKind.MalformedScenario);
+    }
+
+    [Fact]
+    public async Task HeaderCountAtLimitRemainsEligibleForValidation()
+    {
+        var expected = new ForwardedIdentity("http", UntrustedProxy);
+        var headers = Enumerable.Range(0, 64).ToDictionary(index => $"X-Test-{index}", _ => "value");
+        var scenario = new ForwardTrustScenario(
+            "maximum-header-count",
+            UntrustedProxy.ToString(),
+            expected,
+            ForwardTrustHeaderExpectation.Rejected,
+            headers);
+
+        var result = await new ForwardTrustVerifier().VerifyAsync(
+            [scenario],
+            (_, _) => ValueTask.FromResult(expected));
+
+        Assert.True(result.Succeeded, FailureText(result));
+    }
+
+    [Fact]
+    public async Task HeaderAggregateSizeLimitRejectsBeforeSenderInvocation()
+    {
+        var calls = 0;
+        var scenario = new ForwardTrustScenario(
+            "headers-too-large",
+            UntrustedProxy.ToString(),
+            new ForwardedIdentity("http", UntrustedProxy),
+            ForwardTrustHeaderExpectation.Rejected,
+            new Dictionary<string, string> { ["X-Test"] = new string('x', 64 * 1024) });
+
+        var result = await new ForwardTrustVerifier().VerifyAsync(
+            [scenario],
+            (_, _) =>
+            {
+                calls++;
+                return ValueTask.FromResult(new ForwardedIdentity("http", UntrustedProxy));
+            });
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(0, calls);
+        Assert.Contains(result.Failures, failure => failure.Kind == ForwardTrustFailureKind.MalformedScenario);
+    }
+
+    [Fact]
+    public async Task HeaderAggregateSizeAtLimitRemainsEligibleForValidation()
+    {
+        var expected = new ForwardedIdentity("http", UntrustedProxy);
+        var headers = new Dictionary<string, string>
+        {
+            ["X-Test-0"] = new string('x', 16_384),
+            ["X-Test-1"] = new string('x', 16_384),
+            ["X-Test-2"] = new string('x', 16_384),
+            ["X-Test-3"] = new string('x', 16_352)
+        };
+        var scenario = new ForwardTrustScenario(
+            "maximum-header-bytes",
+            UntrustedProxy.ToString(),
+            expected,
+            ForwardTrustHeaderExpectation.Rejected,
+            headers);
+
+        var result = await new ForwardTrustVerifier().VerifyAsync(
+            [scenario],
+            (_, _) => ValueTask.FromResult(expected));
+
+        Assert.True(result.Succeeded, FailureText(result));
+    }
+
+    [Fact]
+    public async Task HeaderValueOverLimitRejectsBeforeSenderInvocation()
+    {
+        var calls = 0;
+        var scenario = new ForwardTrustScenario(
+            "header-value-too-large",
+            UntrustedProxy.ToString(),
+            new ForwardedIdentity("http", UntrustedProxy),
+            ForwardTrustHeaderExpectation.Rejected,
+            new Dictionary<string, string> { ["X-Test"] = new string('x', 16_385) });
+
+        var result = await new ForwardTrustVerifier().VerifyAsync(
+            [scenario],
+            (_, _) =>
+            {
+                calls++;
+                return ValueTask.FromResult(new ForwardedIdentity("http", UntrustedProxy));
+            });
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(0, calls);
+        Assert.Contains(result.Failures, failure => failure.Kind == ForwardTrustFailureKind.MalformedScenario);
+    }
+
+    [Theory]
+    [InlineData("Bad Header")]
+    [InlineData("Bad:Header")]
+    [InlineData("Bad,Header")]
+    [InlineData("Bad;Header")]
+    [InlineData("Bad(Header)")]
+    [InlineData("Bad\0Header")]
+    [InlineData("Bad\u007fHeader")]
+    public async Task InvalidHeaderNameTokenClassesAreRejectedBeforeSenderInvocation(string headerName)
+    {
+        var calls = 0;
+        var scenario = new ForwardTrustScenario(
+            "invalid-header-name",
+            UntrustedProxy.ToString(),
+            new ForwardedIdentity("http", UntrustedProxy),
+            ForwardTrustHeaderExpectation.Rejected,
+            new Dictionary<string, string> { [headerName] = "value" });
+
+        var result = await new ForwardTrustVerifier().VerifyAsync(
+            [scenario],
+            (_, _) =>
+            {
+                calls++;
+                return ValueTask.FromResult(new ForwardedIdentity("http", UntrustedProxy));
+            });
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(0, calls);
+        Assert.Contains(result.Failures, failure => failure.Kind == ForwardTrustFailureKind.MalformedScenario);
+    }
+
+    [Theory]
+    [InlineData("bad\u0001value")]
+    [InlineData("bad\u007fvalue")]
+    [InlineData("bad\rvalue")]
+    [InlineData("bad\nvalue")]
+    public async Task InvalidHeaderValueControlClassesAreRejectedBeforeSenderInvocation(string headerValue)
+    {
+        var calls = 0;
+        var scenario = new ForwardTrustScenario(
+            "invalid-header-value",
+            UntrustedProxy.ToString(),
+            new ForwardedIdentity("http", UntrustedProxy),
+            ForwardTrustHeaderExpectation.Rejected,
+            new Dictionary<string, string> { ["X-Test"] = headerValue });
+
+        var result = await new ForwardTrustVerifier().VerifyAsync(
+            [scenario],
+            (_, _) =>
+            {
+                calls++;
+                return ValueTask.FromResult(new ForwardedIdentity("http", UntrustedProxy));
+            });
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(0, calls);
+        Assert.Contains(result.Failures, failure => failure.Kind == ForwardTrustFailureKind.MalformedScenario);
+    }
+
+    [Fact]
+    public async Task LegalHeaderValueCharactersRemainAccepted()
+    {
+        var peer = UntrustedProxy.ToString();
+        var expected = new ForwardedIdentity("http", UntrustedProxy);
+        var scenario = new ForwardTrustScenario(
+            "legal-header-value",
+            peer,
+            expected,
+            ForwardTrustHeaderExpectation.Rejected,
+            new Dictionary<string, string> { ["X-Test"] = "value\twith\u0080" });
+
+        var result = await new ForwardTrustVerifier().VerifyAsync(
+            [scenario],
+            (_, _) => ValueTask.FromResult(expected));
+
+        Assert.True(result.Succeeded, FailureText(result));
     }
 
     [Fact]
@@ -327,6 +584,14 @@ public sealed class ForwardTrustVerifierTests
     private static string FailureText(ForwardTrustResult result)
     {
         return string.Join(" | ", result.Failures.Select(static failure => $"{failure.Kind}:{failure.Dimension}:{failure.Message}"));
+    }
+
+    private sealed class ThrowOnEnumeration : IEnumerable<ForwardTrustScenario>
+    {
+        public IEnumerator<ForwardTrustScenario> GetEnumerator() =>
+            throw new InvalidOperationException("The pre-cancelled verification enumerated its input.");
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
     }
 
     private static void ConfigureExactProxies(ForwardedHeadersOptions options)

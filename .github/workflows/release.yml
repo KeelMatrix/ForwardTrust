@@ -29,12 +29,23 @@ jobs:
           ./scripts/validate-release.ps1 -ExpectedVersion $version -ExpectedPackageVersion $version -ExpectedTag $env:GITHUB_REF_NAME -ExpectedCommit (git rev-parse HEAD) -RequireIcon
       - name: Restore
         run: dotnet restore KeelMatrix.ForwardTrust.sln --configfile NuGet.config --force
+      - name: Audit package vulnerabilities
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/Invoke-VulnerabilityAudit.ps1 -ReportPath artifacts/vulnerability-audit.json
       - name: Build and test
         run: |
           dotnet build KeelMatrix.ForwardTrust.sln -c Release --no-restore
           dotnet test KeelMatrix.ForwardTrust.sln -c Release --no-build --logger "console;verbosity=minimal"
       - name: Pack exact product
         run: dotnet pack src/KeelMatrix.ForwardTrust/KeelMatrix.ForwardTrust.csproj -c Release --no-build -o artifacts/packages
+      - name: Normalize deterministic package archives
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/Normalize-PackageArchives.ps1 -PackageDirectory artifacts/packages
+      - name: Verify repeated package output
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME.Substring(1)
+          ./scripts/Test-PackageReproducibility.ps1 -PackageDirectory artifacts/packages -ExpectedVersion $version
       - name: Validate exact packed artifact set
         shell: pwsh
         run: |

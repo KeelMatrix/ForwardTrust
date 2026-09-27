@@ -98,6 +98,30 @@ public sealed class ForwardTrustQuickStartTests
 
 For an untrusted-peer scenario, use `ForwardTrustHeaderExpectation.Rejected`, expect the identity exposed when forwarded values are ignored, and set `control` to a trusted peer plus the identity those same headers must produce. An accepted scenario does the reverse: its control names an untrusted peer and the ignored-header identity. The verifier validates all scenarios before sending requests and bounds the scenario count and timeout.
 
+For a two-hop boundary, set the application pipeline's `ForwardLimit` to `2` and keep the chain aligned across the asserted forwarded dimensions:
+
+```csharp
+var twoHop = new ForwardTrustScenario(
+    "two-hop-trusted-chain",
+    "10.0.0.11",
+    new ForwardedIdentity("https", IPAddress.Parse("198.51.100.10"), "public.example"),
+    ForwardTrustHeaderExpectation.Accepted,
+    new Dictionary<string, string>
+    {
+        ["X-Forwarded-For"] = "198.51.100.10, 10.0.0.10",
+        ["X-Forwarded-Proto"] = "https, http",
+        ["X-Forwarded-Host"] = "public.example, internal.example"
+    },
+    control: new ForwardTrustControl(
+        "10.0.0.20",
+        new ForwardedIdentity("http", IPAddress.Parse("10.0.0.20"), "localhost")));
+
+var result = await new ForwardTrustVerifier().VerifyAsync([twoHop], sender);
+Assert.True(result.Succeeded, string.Join(" | ", result.Failures.Select(failure => failure.Message)));
+```
+
+Scenario input must contain at least one item and is limited by `ForwardTrustVerifierOptions.MaxScenarioCount` (32 by default, 256 maximum); lazy input is stopped at the first item over that limit. Each scenario accepts at most 64 headers, 64 KiB of aggregate UTF-8 header-name/value bytes, 256 characters per header name, and 16 KiB per value. Header names must use HTTP token characters and values may contain horizontal tab, visible ASCII, or obs-text only. Violations return `MalformedScenario` before the request sender runs.
+
 For every asserted dimension, ForwardTrust issues original and generated-counterfactual requests through both peers, then reissues each identical request. A pass requires stable full identities, the exact generated value on the accepted side, and no change on the rejected side. These controls reject detectable no-op, rewrite, replay, call-order, time, randomness, and state-drift behavior; they do not authenticate the caller-provided sender.
 
 The repository README is the canonical user-facing source. The packed project README mirrors this install, executable quick start, scope, diagnostics, and privacy contract.

@@ -5,6 +5,11 @@ namespace KeelMatrix.ForwardTrust;
 /// <summary>Describes one simulated peer request and its expected application-level interpretation.</summary>
 public sealed class ForwardTrustScenario
 {
+    internal const int MaxHeaderCount = 64;
+    internal const int MaxHeaderNameLength = 256;
+    internal const int MaxHeaderValueLength = 16 * 1024;
+    internal const int MaxAggregateHeaderBytes = 64 * 1024;
+
     /// <summary>Creates a scenario. Address, control, and header syntax are checked before any request is sent.</summary>
     /// <param name="name">The stable scenario name used in diagnostics.</param>
     /// <param name="immediatePeerAddress">The simulated peer address for the primary request.</param>
@@ -28,10 +33,8 @@ public sealed class ForwardTrustScenario
         HeaderExpectation = headerExpectation;
         Control = control;
         Path = path ?? string.Empty;
-        Headers = new ReadOnlyDictionary<string, string>(
-            headers is null
-                ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-                : new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase));
+        Headers = new ReadOnlyDictionary<string, string>(CopyHeadersBounded(headers, out var headerLimitsExceeded));
+        HeaderLimitsExceeded = headerLimitsExceeded;
     }
 
     /// <summary>Gets the stable scenario name used in diagnostics.</summary>
@@ -54,4 +57,54 @@ public sealed class ForwardTrustScenario
 
     /// <summary>Gets a defensive copy of request headers.</summary>
     public IReadOnlyDictionary<string, string> Headers { get; }
+
+    internal bool HeaderLimitsExceeded { get; }
+
+    internal static Dictionary<string, string> CopyHeadersBounded(
+        IReadOnlyDictionary<string, string>? headers,
+        out bool limitsExceeded)
+    {
+        var copy = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        limitsExceeded = headers is not null && headers.Count > MaxHeaderCount;
+        if (headers is null || limitsExceeded)
+        {
+            return copy;
+        }
+
+        var headerCount = 0;
+        var aggregateLength = 0L;
+        foreach (var header in headers)
+        {
+            headerCount++;
+            if (headerCount > MaxHeaderCount)
+            {
+                limitsExceeded = true;
+                break;
+            }
+
+            if (header.Key is null || header.Value is null)
+            {
+                limitsExceeded = true;
+                break;
+            }
+
+            if (header.Key.Length > MaxHeaderNameLength || header.Value.Length > MaxHeaderValueLength)
+            {
+                limitsExceeded = true;
+                break;
+            }
+
+            aggregateLength += System.Text.Encoding.UTF8.GetByteCount(header.Key);
+            aggregateLength += System.Text.Encoding.UTF8.GetByteCount(header.Value);
+            if (aggregateLength > MaxAggregateHeaderBytes)
+            {
+                limitsExceeded = true;
+                break;
+            }
+
+            copy[header.Key] = header.Value;
+        }
+
+        return copy;
+    }
 }

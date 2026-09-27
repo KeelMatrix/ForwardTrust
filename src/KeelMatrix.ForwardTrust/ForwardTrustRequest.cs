@@ -14,7 +14,11 @@ public sealed class ForwardTrustRequest
         Scenario = scenario;
         ImmediatePeerAddress = immediatePeerAddress;
         Headers = new ReadOnlyDictionary<string, string>(
-            new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase));
+            ForwardTrustScenario.CopyHeadersBounded(headers, out var limitsExceeded));
+        if (limitsExceeded)
+        {
+            throw new InvalidOperationException("A validated request exceeded the bounded header limits.");
+        }
         Path = scenario.Path;
     }
 

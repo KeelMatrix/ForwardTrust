@@ -98,6 +98,30 @@ public sealed class ForwardTrustQuickStartTests
 
 For an untrusted peer, use `ForwardTrustHeaderExpectation.Rejected`, expect the identity exposed when forwarded values are ignored, and set `control` to a trusted peer plus the identity those same headers must produce. An accepted scenario uses an untrusted control peer and its ignored-header identity. For every asserted dimension, the verifier sends original and generated-counterfactual requests through both peers, then reissues each identical request. A pass requires stable full identities, the exact generated value on the accepted side, and no change on the rejected side.
 
+For a two-hop boundary, set the application pipeline's `ForwardLimit` to `2` and keep the chain aligned across the asserted forwarded dimensions:
+
+```csharp
+var twoHop = new ForwardTrustScenario(
+    "two-hop-trusted-chain",
+    "10.0.0.11",
+    new ForwardedIdentity("https", IPAddress.Parse("198.51.100.10"), "public.example"),
+    ForwardTrustHeaderExpectation.Accepted,
+    new Dictionary<string, string>
+    {
+        ["X-Forwarded-For"] = "198.51.100.10, 10.0.0.10",
+        ["X-Forwarded-Proto"] = "https, http",
+        ["X-Forwarded-Host"] = "public.example, internal.example"
+    },
+    control: new ForwardTrustControl(
+        "10.0.0.20",
+        new ForwardedIdentity("http", IPAddress.Parse("10.0.0.20"), "localhost")));
+
+var result = await new ForwardTrustVerifier().VerifyAsync([twoHop], sender);
+Assert.True(result.Succeeded, string.Join(" | ", result.Failures.Select(failure => failure.Message)));
+```
+
+Scenario input must contain at least one item and is limited by `ForwardTrustVerifierOptions.MaxScenarioCount` (32 by default, 256 maximum); lazy input is stopped at the first item over that limit. Each scenario accepts at most 64 headers, 64 KiB of aggregate UTF-8 header-name/value bytes, 256 characters per header name, and 16 KiB per value. Header names must use HTTP token characters and values may contain horizontal tab, visible ASCII, or obs-text only. Violations return `MalformedScenario` before the request sender runs.
+
 ## Failure diagnostics
 
 `ForwardTrustResult.Failures` distinguishes trusted-header rejection, untrusted-header acceptance, scheme, host, client-address, forward-limit, malformed-scenario, timed-out host/probe, host setup, request-application-not-proven, and forwarded-value-not-proven failures. Duplicate scenario names and contradictory expectations are rejected before any request is sent.
