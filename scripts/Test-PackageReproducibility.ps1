@@ -6,6 +6,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot '../build/Invoke-NestedPwsh.ps1')
 $root = (Resolve-Path $RepositoryRoot).Path
 $packageDirectoryPath = if ([IO.Path]::IsPathRooted($PackageDirectory)) { (Resolve-Path $PackageDirectory).Path } else { (Resolve-Path (Join-Path $root $PackageDirectory)).Path }
 $repeatDirectory = Join-Path $root 'artifacts/repeat-pack'
@@ -17,7 +18,7 @@ Write-Output '> dotnet pack src/KeelMatrix.ForwardTrust/KeelMatrix.ForwardTrust.
 dotnet pack src/KeelMatrix.ForwardTrust/KeelMatrix.ForwardTrust.csproj -c Release --no-build -o $repeatDirectory
 if ($LASTEXITCODE -ne 0) { throw 'The repeated package build failed.' }
 
-& pwsh -NoProfile -File (Join-Path $root 'scripts/Normalize-PackageArchives.ps1') -PackageDirectory $repeatDirectory
+Invoke-NestedPwsh -NoProfile -File (Join-Path $root 'scripts/Normalize-PackageArchives.ps1') -PackageDirectory $repeatDirectory
 if ($LASTEXITCODE -ne 0) { throw 'The repeated package normalization failed.' }
 
 foreach ($extension in @('nupkg', 'snupkg')) {
