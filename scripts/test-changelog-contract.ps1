@@ -7,11 +7,12 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot '../build/Invoke-NestedPwsh.ps1')
 $root = (Resolve-Path $RepositoryRoot).Path
 $validator = Join-Path $root 'scripts/validate-release.ps1'
 
 function Invoke-Contract([string]$Fixture, [bool]$ShouldPass) {
-    & pwsh -NoProfile -File $validator -RepositoryRoot $Fixture -ExpectedVersion $ExpectedVersion -ExpectedPackageVersion $ExpectedPackageVersion
+    Invoke-NestedPwsh -NoProfile -File $validator -RepositoryRoot $Fixture -ExpectedVersion $ExpectedVersion -ExpectedPackageVersion $ExpectedPackageVersion
     $passed = $LASTEXITCODE -eq 0
     if ($passed -ne $ShouldPass) {
         throw "Unexpected changelog contract result for fixture '$Fixture'. Expected pass=$ShouldPass, actual pass=$passed."
