@@ -49,6 +49,8 @@ KeelMatrix.ForwardTrust.ForwardTrustResult.Scenarios.get -> System.Collections.G
 KeelMatrix.ForwardTrust.ForwardTrustResult.Succeeded.get -> bool
 KeelMatrix.ForwardTrust.ForwardTrustScenario
 KeelMatrix.ForwardTrust.ForwardTrustScenario.Control.get -> KeelMatrix.ForwardTrust.ForwardTrustControl?
+KeelMatrix.ForwardTrust.ForwardTrustScenario.CounterfactualHost.get -> string?
+KeelMatrix.ForwardTrust.ForwardTrustScenario.CounterfactualHost.init -> void
 KeelMatrix.ForwardTrust.ForwardTrustScenario.ExpectedIdentity.get -> KeelMatrix.ForwardTrust.ForwardedIdentity!
 KeelMatrix.ForwardTrust.ForwardTrustScenario.ForwardTrustScenario(string! name, string! immediatePeerAddress, KeelMatrix.ForwardTrust.ForwardedIdentity! expectedIdentity, KeelMatrix.ForwardTrust.ForwardTrustHeaderExpectation headerExpectation, System.Collections.Generic.IReadOnlyDictionary<string!, string!>? headers = null, string! path = "/forward-trust-probe", KeelMatrix.ForwardTrust.ForwardTrustControl? control = null) -> void
 KeelMatrix.ForwardTrust.ForwardTrustScenario.HeaderExpectation.get -> KeelMatrix.ForwardTrust.ForwardTrustHeaderExpectation
