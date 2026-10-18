@@ -124,7 +124,7 @@ public sealed class ForwardTrustVerifier
                     var acceptedObservation = scenario.HeaderExpectation == ForwardTrustHeaderExpectation.Accepted
                         ? observedIdentity
                         : controlAttempt.Identity!;
-                    var counterfactualValue = CounterfactualValue(dimension.HeaderName, acceptedObservation);
+                    var counterfactualValue = CounterfactualValue(dimension.HeaderName, acceptedObservation, scenario);
                     var primaryCounterfactualRequest = CreateCounterfactualRequest(
                         primaryRequest,
                         dimension.HeaderName,
@@ -269,7 +269,7 @@ public sealed class ForwardTrustVerifier
                 scenario.Name,
                 ForwardTrustFailureKind.ForwardedValueNotProven,
                 dimension,
-                "The accepted-side observation did not reproducibly match the generated forwarded-header counterfactual for this scenario's control pair. The result is not proven to be caused by forwarded-header handling."));
+                "The accepted-side observation did not reproducibly match the configured forwarded-header counterfactual for this scenario's control pair. The result is not proven to be caused by forwarded-header handling."));
         }
 
         if (!NonTargetDimensionsEqual(dimension, accepted, acceptedCounterfactual))
@@ -379,6 +379,11 @@ public sealed class ForwardTrustVerifier
             failures.Add(Malformed(scenario, "Request header names must be unique without regard to case."));
         }
 
+        if (scenario.HasInvalidCounterfactualHost)
+        {
+            failures.Add(Malformed(scenario, "A caller-supplied counterfactual host must be a bounded ASCII host value without a comma or control characters."));
+        }
+
         if (!Enum.IsDefined(scenario.HeaderExpectation))
         {
             failures.Add(Malformed(scenario, "The forwarded-header expectation must be Accepted or Rejected."));
@@ -417,6 +422,25 @@ public sealed class ForwardTrustVerifier
         }
 
         var dimensions = GetAssertedDimensions(scenario);
+        if (scenario.CounterfactualHost is not null)
+        {
+            if (!dimensions.Any(static dimension => dimension.Dimension == ForwardTrustDimension.Host))
+            {
+                failures.Add(Malformed(scenario, "A counterfactual host can only be supplied when the scenario asserts X-Forwarded-Host."));
+            }
+            else
+            {
+                var acceptedExpectedIdentity = scenario.HeaderExpectation == ForwardTrustHeaderExpectation.Accepted
+                    ? scenario.ExpectedIdentity
+                    : scenario.Control?.ExpectedIdentity;
+                if (acceptedExpectedIdentity?.Host is null
+                    || string.Equals(scenario.CounterfactualHost, acceptedExpectedIdentity.Host, StringComparison.OrdinalIgnoreCase))
+                {
+                    failures.Add(Malformed(scenario, "A counterfactual host must differ from the accepted-side expected host."));
+                }
+            }
+        }
+
         if (dimensions.Count > 0)
         {
             if (scenario.Control is null)
@@ -561,7 +585,10 @@ public sealed class ForwardTrustVerifier
         return request with { Headers = headers };
     }
 
-    private static string CounterfactualValue(string headerName, ForwardedIdentity acceptedObservation)
+    private static string CounterfactualValue(
+        string headerName,
+        ForwardedIdentity acceptedObservation,
+        ForwardTrustScenario scenario)
     {
         if (headerName.Equals("X-Forwarded-Proto", StringComparison.OrdinalIgnoreCase))
         {
@@ -570,6 +597,11 @@ public sealed class ForwardTrustVerifier
 
         if (headerName.Equals("X-Forwarded-Host", StringComparison.OrdinalIgnoreCase))
         {
+            if (scenario.CounterfactualHost is not null)
+            {
+                return scenario.CounterfactualHost;
+            }
+
             return string.Equals(acceptedObservation.Host, "counterfactual.example", StringComparison.OrdinalIgnoreCase)
                 ? "alternate-counterfactual.example"
                 : "counterfactual.example";

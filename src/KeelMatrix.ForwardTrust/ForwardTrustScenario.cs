@@ -10,7 +10,7 @@ public sealed class ForwardTrustScenario
     internal const int MaxHeaderValueLength = 16 * 1024;
     internal const int MaxAggregateHeaderBytes = 64 * 1024;
 
-    /// <summary>Creates a scenario. Address, control, header syntax, and case-insensitive header-name uniqueness are checked before any request is sent.</summary>
+    /// <summary>Creates a scenario. Address, control, header syntax, counterfactual-host syntax, and case-insensitive header-name uniqueness are checked before any request is sent.</summary>
     /// <param name="name">The stable scenario name used in diagnostics.</param>
     /// <param name="immediatePeerAddress">The simulated peer address for the primary request.</param>
     /// <param name="expectedIdentity">The expected identity for the primary request.</param>
@@ -56,6 +56,9 @@ public sealed class ForwardTrustScenario
     /// <summary>Gets the scenario-local opposite-trust control, or <see langword="null"/> when no forwarded dimension is asserted.</summary>
     public ForwardTrustControl? Control { get; }
 
+    /// <summary>Gets or initializes the caller-supplied ASCII alternate forwarded host used for a host counterfactual, or <see langword="null"/> to use the verifier default. Use punycode for internationalized names.</summary>
+    public string? CounterfactualHost { get; init; }
+
     /// <summary>Gets the request path used by the caller-provided test host.</summary>
     public string Path { get; }
 
@@ -65,6 +68,31 @@ public sealed class ForwardTrustScenario
     internal bool HeaderLimitsExceeded { get; }
 
     internal bool HasDuplicateHeaderNames { get; }
+
+    internal bool HasInvalidCounterfactualHost =>
+        CounterfactualHost is not null && !IsValidCounterfactualHost(CounterfactualHost);
+
+    private static bool IsValidCounterfactualHost(string host)
+    {
+        if (string.IsNullOrWhiteSpace(host)
+            || host.Length > MaxHeaderValueLength
+            || host.Contains(',')
+            || host.Any(char.IsControl)
+            || host.Any(char.IsWhiteSpace)
+            || host.Any(static character => character > 0x7e)
+            || !Uri.TryCreate($"http://{host}/", UriKind.Absolute, out var parsed)
+            || !string.IsNullOrEmpty(parsed.UserInfo)
+            || parsed.AbsolutePath != "/"
+            || parsed.Query.Length > 0
+            || parsed.Fragment.Length > 0
+            || parsed.HostNameType == UriHostNameType.Unknown
+            || parsed.Host.Length == 0)
+        {
+            return false;
+        }
+
+        return true;
+    }
 
     internal static Dictionary<string, string> CopyHeadersBounded(
         IReadOnlyDictionary<string, string>? headers,

@@ -23,6 +23,26 @@ public sealed class ForwardTrustRegressionTests
         this.output = output;
     }
 
+    public static IEnumerable<object[]> UnstableCounterfactualCases()
+    {
+        foreach (var headerName in new[] { "X-Forwarded-For", "X-Forwarded-Proto", "X-Forwarded-Host" })
+        {
+            foreach (var expectation in new[] { ForwardTrustHeaderExpectation.Accepted, ForwardTrustHeaderExpectation.Rejected })
+            {
+                foreach (var isIpv6 in new[] { false, true })
+                {
+                    foreach (var hopCount in new[] { 1, 2 })
+                    {
+                        foreach (var driftOnAcceptedSide in new[] { false, true })
+                        {
+                            yield return [headerName, expectation, isIpv6, hopCount, driftOnAcceptedSide];
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     [Fact]
     public async Task ReviewersRejectedScenarioFalseSafeProbesFailClosed()
     {
@@ -279,7 +299,261 @@ public sealed class ForwardTrustRegressionTests
         Assert.False(result.Succeeded);
         Assert.Contains(result.Failures, failure =>
             failure.Kind == ForwardTrustFailureKind.ForwardedValueNotProven
-            && failure.Message.Contains("generated forwarded-header counterfactual", StringComparison.Ordinal));
+            && failure.Message.Contains("configured forwarded-header counterfactual", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("public.example", "public.example:8443", "public.example", "public.example", 1)]
+    [InlineData("*", "counterfactual.example", "public.example", "public.example", 1)]
+    [InlineData("*.example.com", "counterfactual.example.com", "public.example.com", "public.example.com", 1)]
+    [InlineData("public.example|xn--bcher-kva.example", "public.example", "xn--bcher-kva.example", "xn--bcher-kva.example", 1)]
+    [InlineData("public.example|[2001:db8::2]", "[2001:db8::2]", "public.example", "public.example", 1)]
+    [InlineData("public.example|internal.example", "public.example:8443", "public.example, internal.example", "public.example", 2)]
+    public async Task CallerSuppliedHostCounterfactualRespectsAllowedHosts(
+        string allowedHosts,
+        string counterfactualHost,
+        string originalHeaderHost,
+        string expectedHost,
+        int forwardLimit)
+    {
+        await using var host = await TestHostHarness.StartAsync(options =>
+        {
+            options.ForwardedHeaders = ForwardedHeaders.XForwardedHost;
+            options.KnownProxies.Clear();
+            options.KnownProxies.Add(TrustedProxy);
+            options.ForwardLimit = forwardLimit;
+            options.AllowedHosts.Clear();
+            foreach (var allowedHost in allowedHosts.Split('|'))
+            {
+                options.AllowedHosts.Add(allowedHost);
+            }
+        });
+        var acceptedIdentity = new ForwardedIdentity("http", TrustedProxy, expectedHost);
+        var rejectedIdentity = new ForwardedIdentity("http", UntrustedProxy, "localhost");
+        foreach (var expectation in new[] { ForwardTrustHeaderExpectation.Accepted, ForwardTrustHeaderExpectation.Rejected })
+        {
+            var acceptedOnPrimary = expectation == ForwardTrustHeaderExpectation.Accepted;
+            var scenario = new ForwardTrustScenario(
+                "allowed-host-counterfactual",
+                acceptedOnPrimary ? TrustedProxy.ToString() : UntrustedProxy.ToString(),
+                acceptedOnPrimary ? acceptedIdentity : rejectedIdentity,
+                expectation,
+                new Dictionary<string, string> { ["X-Forwarded-Host"] = originalHeaderHost },
+                control: new ForwardTrustControl(
+                    acceptedOnPrimary ? UntrustedProxy.ToString() : TrustedProxy.ToString(),
+                    acceptedOnPrimary ? rejectedIdentity : acceptedIdentity))
+            {
+                CounterfactualHost = counterfactualHost
+            };
+
+            var result = await new ForwardTrustVerifier().VerifyAsync(
+                [scenario],
+                TestHostHarness.CreateSender(host.Server));
+
+            Assert.True(result.Succeeded,
+                $"Expectation '{expectation}' observed host '{result.Scenarios[0].ObservedIdentity?.Host}', expected '{scenario.ExpectedIdentity.Host}': {string.Join(" | ", result.Failures.Select(static failure => failure.Message))}");
+        }
+    }
+
+    [Fact]
+    public async Task CounterfactualHostWithoutAnAssertedHostDimensionFailsBeforeSending()
+    {
+        var scenario = new ForwardTrustScenario(
+            "counterfactual-host-without-host-dimension",
+            TrustedProxy.ToString(),
+            new ForwardedIdentity("http", TrustedProxy),
+            ForwardTrustHeaderExpectation.Rejected)
+        {
+            CounterfactualHost = "alternate.example"
+        };
+        var senderCalls = 0;
+
+        var result = await new ForwardTrustVerifier().VerifyAsync(
+            [scenario],
+            (_, _) =>
+            {
+                senderCalls++;
+                return ValueTask.FromResult(scenario.ExpectedIdentity);
+            });
+
+        Assert.Equal(0, senderCalls);
+        Assert.Contains(result.Failures, static failure => failure.Kind == ForwardTrustFailureKind.MalformedScenario);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("bad host")]
+    [InlineData("bad,other.example")]
+    [InlineData("bad/path")]
+    [InlineData("https://public.example")]
+    [InlineData("public.example?x=1")]
+    [InlineData("public.example#fragment")]
+    [InlineData("user@public.example")]
+    [InlineData("public.example:port")]
+    [InlineData("[2001:db8::1")]
+    [InlineData("bücher.example")]
+    [InlineData("bad\r\nhost")]
+    public async Task InvalidCounterfactualHostFailsBeforeSending(string counterfactualHost)
+    {
+        var scenario = new ForwardTrustScenario(
+            "invalid-counterfactual-host",
+            TrustedProxy.ToString(),
+            new ForwardedIdentity("http", TrustedProxy, "public.example"),
+            ForwardTrustHeaderExpectation.Accepted,
+            new Dictionary<string, string> { ["X-Forwarded-Host"] = "public.example" },
+            control: RejectedControl(UntrustedProxy, assertHost: true))
+        {
+            CounterfactualHost = counterfactualHost
+        };
+        var senderCalls = 0;
+
+        var result = await new ForwardTrustVerifier().VerifyAsync(
+            [scenario],
+            (_, _) =>
+            {
+                senderCalls++;
+                return ValueTask.FromResult(scenario.ExpectedIdentity);
+            });
+
+        Assert.Equal(0, senderCalls);
+        Assert.Contains(result.Failures, static failure => failure.Kind == ForwardTrustFailureKind.MalformedScenario);
+    }
+
+    [Fact]
+    public async Task OversizedCounterfactualHostFailsBeforeSending()
+    {
+        var scenario = new ForwardTrustScenario(
+            "oversized-counterfactual-host",
+            TrustedProxy.ToString(),
+            new ForwardedIdentity("http", TrustedProxy, "public.example"),
+            ForwardTrustHeaderExpectation.Accepted,
+            new Dictionary<string, string> { ["X-Forwarded-Host"] = "public.example" },
+            control: RejectedControl(UntrustedProxy, assertHost: true))
+        {
+            CounterfactualHost = new string('a', 16 * 1024 + 1)
+        };
+        var senderCalls = 0;
+
+        var result = await new ForwardTrustVerifier().VerifyAsync(
+            [scenario],
+            (_, _) =>
+            {
+                senderCalls++;
+                return ValueTask.FromResult(scenario.ExpectedIdentity);
+            });
+
+        Assert.Equal(0, senderCalls);
+        Assert.Contains(result.Failures, static failure => failure.Kind == ForwardTrustFailureKind.MalformedScenario);
+    }
+
+    [Theory]
+    [MemberData(nameof(UnstableCounterfactualCases))]
+    public async Task UnstableCounterfactualNonTargetEffectsFailAcrossDimensionsTrustSidesAddressesAndHops(
+        string headerName,
+        ForwardTrustHeaderExpectation expectation,
+        bool isIpv6,
+        int hopCount,
+        bool driftOnAcceptedSide)
+    {
+        const string unstableKey = "unstable-counterfactual-side-effect";
+        var trustedProxy = IPAddress.Parse(isIpv6 ? "2001:db8::10" : "10.0.0.10");
+        var secondTrustedProxy = IPAddress.Parse(isIpv6 ? "2001:db8::11" : "10.0.0.11");
+        var untrustedProxy = IPAddress.Parse(isIpv6 ? "2001:db8::20" : "10.0.0.20");
+        var expectedClient = IPAddress.Parse(isIpv6 ? "2001:db8::25" : "198.51.100.25");
+        var forwardedHeaders = headerName switch
+        {
+            "X-Forwarded-For" => ForwardedHeaders.XForwardedFor,
+            "X-Forwarded-Proto" => ForwardedHeaders.XForwardedProto,
+            _ => ForwardedHeaders.XForwardedHost
+        };
+        var acceptedIdentity = headerName switch
+        {
+            "X-Forwarded-For" => new ForwardedIdentity("http", expectedClient),
+            "X-Forwarded-Proto" => new ForwardedIdentity("https", trustedProxy),
+            _ => new ForwardedIdentity("http", trustedProxy, "public.example")
+        };
+        var rejectedIdentity = new ForwardedIdentity(
+            "http",
+            untrustedProxy,
+            headerName == "X-Forwarded-Host" ? "localhost" : null);
+        var counterfactualValue = headerName switch
+        {
+            "X-Forwarded-For" => "203.0.113.254",
+            "X-Forwarded-Proto" => "http",
+            _ => "counterfactual.example"
+        };
+        var originalValue = headerName switch
+        {
+            "X-Forwarded-For" => hopCount == 1
+                ? expectedClient.ToString()
+                : $"{expectedClient}, {secondTrustedProxy}",
+            "X-Forwarded-Proto" => hopCount == 1 ? "https" : "https, http",
+            _ => hopCount == 1 ? "public.example" : "public.example, internal.example"
+        };
+        var primaryIsAccepted = expectation == ForwardTrustHeaderExpectation.Accepted;
+        var primaryPeer = primaryIsAccepted ? trustedProxy : untrustedProxy;
+        var controlPeer = primaryIsAccepted ? untrustedProxy : trustedProxy;
+        var primaryExpected = primaryIsAccepted ? acceptedIdentity : rejectedIdentity;
+        var controlExpected = primaryIsAccepted ? rejectedIdentity : acceptedIdentity;
+        var scenario = new ForwardTrustScenario(
+            $"unstable-{headerName}-{expectation}-{(isIpv6 ? "ipv6" : "ipv4")}-{hopCount}-hop-{(driftOnAcceptedSide ? "accepted" : "rejected")}",
+            primaryPeer.ToString(),
+            primaryExpected,
+            expectation,
+            new Dictionary<string, string> { [headerName] = originalValue },
+            control: new ForwardTrustControl(controlPeer.ToString(), controlExpected));
+        var driftPeer = driftOnAcceptedSide ? trustedProxy : untrustedProxy;
+        var driftCalls = 0;
+
+        await using var host = await TestHostHarness.StartAsync(
+            options =>
+            {
+                options.ForwardedHeaders = forwardedHeaders;
+                options.KnownProxies.Clear();
+                options.KnownProxies.Add(trustedProxy);
+                if (hopCount == 2)
+                {
+                    options.KnownProxies.Add(secondTrustedProxy);
+                }
+
+                options.ForwardLimit = hopCount;
+            },
+            configureServices: null,
+            configurePipeline: app => app.Use(async (context, next) =>
+            {
+                if (context.Items.TryGetValue(unstableKey, out var marked) && marked is true)
+                {
+                    var variant = Interlocked.Increment(ref driftCalls) % 2;
+                    if (headerName == "X-Forwarded-Host")
+                    {
+                        context.Request.Scheme = variant == 0 ? "http" : "https";
+                    }
+                    else
+                    {
+                        context.Request.Host = new HostString(variant == 0 ? "drift-a.example" : "drift-b.example");
+                    }
+                }
+
+                await next();
+            }));
+        var sender = TestHostHarness.CreateSender(
+            host.Server,
+            beforePipeline: (context, request) =>
+            {
+                if (request.ImmediatePeerAddress.Equals(driftPeer)
+                    && request.Headers.TryGetValue(headerName, out var value)
+                    && string.Equals(value.Split(',', 2)[0].Trim(), counterfactualValue, StringComparison.OrdinalIgnoreCase))
+                {
+                    context.Items[unstableKey] = true;
+                }
+            });
+
+        var result = await new ForwardTrustVerifier().VerifyAsync([scenario], sender);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains(result.Failures, static failure =>
+            failure.Kind == ForwardTrustFailureKind.ForwardedValueNotProven
+            && failure.Message.StartsWith("Reissuing an identical", StringComparison.Ordinal));
     }
 
     [Theory]

@@ -58,6 +58,37 @@ function Write-Fixture([string]$FixtureRoot, [string]$PackageVersion, [string]$C
     Set-Content -LiteralPath (Join-Path $FixtureRoot 'CHANGELOG.md') -Value $Changelog -Encoding utf8
 }
 
+function Convert-FixtureLineEndings([string]$Text, [string]$LineEnding) {
+    $normalized = [regex]::Replace($Text, "`r`n|`r|`n", "`n")
+    if ($LineEnding -eq 'CRLF') {
+        return $normalized.Replace("`n", "`r`n")
+    }
+
+    return $normalized
+}
+
+function Replace-FixtureText(
+    [string]$Text,
+    [string]$OldText,
+    [string]$NewText,
+    [string]$Label,
+    [string]$LineEnding = 'LF') {
+    $normalizedText = [regex]::Replace($Text, "`r`n|`r|`n", "`n")
+    $normalizedOldText = [regex]::Replace($OldText, "`r`n|`r|`n", "`n")
+    $normalizedNewText = [regex]::Replace($NewText, "`r`n|`r|`n", "`n")
+    $matchCount = [regex]::Matches($normalizedText, [regex]::Escape($normalizedOldText)).Count
+    if ($matchCount -ne 1) {
+        throw "Expected one '$Label' fixture mutation target, found $matchCount."
+    }
+
+    $mutatedText = $normalizedText.Replace($normalizedOldText, $normalizedNewText)
+    if ($mutatedText -ceq $normalizedText) {
+        throw "The '$Label' fixture mutation did not change its source text."
+    }
+
+    return (Convert-FixtureLineEndings $mutatedText $LineEnding)
+}
+
 function New-ReleaseFixture(
     [string]$Name,
     [string]$PackageVersion,
@@ -195,11 +226,19 @@ try {
     Invoke-ReleaseContract $firstRelease.Root '0.1.0' '0.1.0' 'v0.1.0' $firstRelease.Commit $firstRelease.Date $true $true 'first-release exact tag SHA'
     Invoke-ReleaseContract $firstRelease.Root '0.1.0' '0.1.0' 'v0.1.0' $firstRelease.Commit $firstRelease.Date $false $false 'already-created tag on pre-tag path'
 
-    $wrongCategoryText = $firstReleaseText.Replace(
-        "### Added`n`n- Executable forwarded-header trust scenarios for ASP.NET Core applications.",
-        "### Added`n`n- Executable forwarded-header trust scenarios for ASP.NET Core applications.`n`n### Fixed`n`n- A remediation note.")
-    $wrongCategory = New-ReleaseFixture 'first-release-wrong-category' '0.1.0' $wrongCategoryText
-    Invoke-ReleaseContract $wrongCategory.Root '0.1.0' '0.1.0' 'v0.1.0' $wrongCategory.Commit $wrongCategory.Date $false $false 'first release permits only Added category'
+    foreach ($lineEnding in @('LF', 'CRLF')) {
+        $lineEndingFirstReleaseText = Convert-FixtureLineEndings $firstReleaseText $lineEnding
+        $wrongCategoryMutation = @{
+            Text = $lineEndingFirstReleaseText
+            OldText = "### Added`n`n- Executable forwarded-header trust scenarios for ASP.NET Core applications."
+            NewText = "### Added`n`n- Executable forwarded-header trust scenarios for ASP.NET Core applications.`n`n### Fixed`n`n- A remediation note."
+            Label = "first-release wrong-category ($lineEnding)"
+            LineEnding = $lineEnding
+        }
+        $wrongCategoryText = Replace-FixtureText @wrongCategoryMutation
+        $wrongCategory = New-ReleaseFixture "first-release-wrong-category-$lineEnding" '0.1.0' $wrongCategoryText
+        Invoke-ReleaseContract $wrongCategory.Root '0.1.0' '0.1.0' 'v0.1.0' $wrongCategory.Commit $wrongCategory.Date $false $false "first release permits only Added category ($lineEnding)"
+    }
 
     $remediationMarkers = @(
         'this removes',
@@ -217,9 +256,13 @@ try {
         'changed from'
     )
     for ($index = 0; $index -lt $remediationMarkers.Count; $index++) {
-        $markerText = $firstReleaseText.Replace(
-            'Executable forwarded-header trust scenarios for ASP.NET Core applications.',
-            "The API $($remediationMarkers[$index]) the earlier behavior.")
+        $markerMutation = @{
+            Text = $firstReleaseText
+            OldText = 'Executable forwarded-header trust scenarios for ASP.NET Core applications.'
+            NewText = "The API $($remediationMarkers[$index]) the earlier behavior."
+            Label = "first-release remediation marker '$($remediationMarkers[$index])'"
+        }
+        $markerText = Replace-FixtureText @markerMutation
         $markerFixture = New-ReleaseFixture "first-release-remediation-$index" '0.1.0' $markerText
         Invoke-ReleaseContract $markerFixture.Root '0.1.0' '0.1.0' 'v0.1.0' $markerFixture.Commit $markerFixture.Date $false $false "first-release rejects remediation marker '$($remediationMarkers[$index])'"
     }
@@ -235,9 +278,13 @@ try {
     $duplicateRelease = New-ReleaseFixture 'duplicate-finalized-version' '0.1.0' $duplicateReleaseText
     Invoke-ReleaseContract $duplicateRelease.Root '0.1.0' '0.1.0' 'v0.1.0' $duplicateRelease.Commit $duplicateRelease.Date $false $false 'release rejects duplicate target version headings'
 
-    $duplicateUnreleasedText = $firstReleaseText.Replace(
-        '## [Unreleased]',
-        "## [Unreleased]`n`n## [Unreleased]")
+    $duplicateUnreleasedMutation = @{
+        Text = $firstReleaseText
+        OldText = '## [Unreleased]'
+        NewText = "## [Unreleased]`n`n## [Unreleased]"
+        Label = 'duplicate Unreleased heading'
+    }
+    $duplicateUnreleasedText = Replace-FixtureText @duplicateUnreleasedMutation
     $duplicateUnreleasedRelease = New-ReleaseFixture 'duplicate-unreleased-release' '0.1.0' $duplicateUnreleasedText
     Invoke-ReleaseContract $duplicateUnreleasedRelease.Root '0.1.0' '0.1.0' 'v0.1.0' $duplicateUnreleasedRelease.Commit $duplicateUnreleasedRelease.Date $false $false 'release rejects duplicate Unreleased headings'
 
@@ -267,7 +314,7 @@ try {
     $untagged = New-ReleaseFixture 'untagged-release' '0.1.0' $firstReleaseText
     Invoke-ReleaseContract $untagged.Root '0.1.0' '0.1.0' 'v0.1.0' $untagged.Commit $untagged.Date $true $false 'tag mode rejects an untagged finalization candidate'
 
-    $wrongDateText = $firstReleaseText.Replace('2026-10-18', '2026-10-17')
+    $wrongDateText = Replace-FixtureText $firstReleaseText '2026-10-18' '2026-10-17' 'wrong release date'
     $wrongDate = New-ReleaseFixture 'wrong-date-release' '0.1.0' $wrongDateText
     Invoke-ReleaseContract $wrongDate.Root '0.1.0' '0.1.0' 'v0.1.0' $wrongDate.Commit $wrongDate.Date $false $false 'changelog date must match exact commit date'
 

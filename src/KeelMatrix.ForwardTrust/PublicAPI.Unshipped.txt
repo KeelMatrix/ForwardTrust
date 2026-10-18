@@ -1,1 +1,3 @@
 #nullable enable
+KeelMatrix.ForwardTrust.ForwardTrustScenario.CounterfactualHost.get -> string?
+KeelMatrix.ForwardTrust.ForwardTrustScenario.CounterfactualHost.init -> void

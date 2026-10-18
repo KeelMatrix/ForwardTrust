@@ -96,7 +96,7 @@ public sealed class ForwardTrustQuickStartTests
 }
 ```
 
-For an untrusted peer, use `ForwardTrustHeaderExpectation.Rejected`, expect the identity exposed when forwarded values are ignored, and set `control` to a trusted peer plus the identity those same headers must produce. An accepted scenario uses an untrusted control peer and its ignored-header identity. For every asserted dimension, the verifier sends original and generated-counterfactual requests through both peers, then reissues each identical request. A pass requires the accepted counterfactual to match the exact generated value while preserving every non-target identity field; the rejected path must preserve its full identity.
+For an untrusted peer, use `ForwardTrustHeaderExpectation.Rejected`, expect the identity exposed when forwarded values are ignored, and set `control` to a trusted peer plus the identity those same headers must produce. An accepted scenario uses an untrusted control peer and its ignored-header identity. For every asserted dimension, the verifier sends original and counterfactual requests through both peers, then reissues each identical request. A pass requires the accepted counterfactual to match the exact generated value (or the caller-selected host value) while preserving every non-target identity field; the rejected path must preserve its full identity.
 
 For a two-hop boundary, set the application pipeline's `ForwardLimit` to `2` and keep the chain aligned across the asserted forwarded dimensions:
 
@@ -122,11 +122,13 @@ Assert.True(result.Succeeded, string.Join(" | ", result.Failures.Select(failure 
 
 Scenario input must contain at least one item and is limited by `ForwardTrustVerifierOptions.MaxScenarioCount` (32 by default, 256 maximum); lazy input is stopped at the first item over that limit. Each scenario accepts at most 64 headers, 64 KiB of aggregate UTF-8 header-name/value bytes, 256 characters per header name, and 16 KiB per value. Header names must use HTTP token characters, names that differ only by case are rejected, and values may contain horizontal tab, visible ASCII, or obs-text only. Violations return `MalformedScenario` before the request sender runs.
 
+`ForwardedIdentity` copies its `IPAddress` on construction and when `ClientAddress` is read, so changes to an IPv6 scope ID through the input object or a returned address cannot change a stored expectation. For host probes, set `CounterfactualHost` in the `ForwardTrustScenario` object initializer when the verifier's default host is not accepted by the application's existing `AllowedHosts` policy. Choose a distinct ASCII host value that the policy already allows; use punycode for internationalized names. For example, an exact `public.example` allowlist can use `public.example:8443`. ForwardTrust does not broaden or change the host policy.
+
 ## Failure diagnostics
 
 `ForwardTrustResult.Failures` distinguishes trusted-header rejection, untrusted-header acceptance, scheme, host, client-address, forward-limit, malformed-scenario, timed-out host/probe, host setup, request-application-not-proven, and forwarded-value-not-proven failures. Duplicate scenario names, contradictory expectations, and case-insensitive duplicate header names are rejected before any request is sent.
 
-`RequestApplicationNotProven` means an asserted scenario omitted a valid scenario-local opposite-trust control or reused its primary peer. `ForwardedValueNotProven` means an accepted-side counterfactual did not produce the generated value or an identical request produced an unstable observation. Neither outcome is a pass. The controls reject observable no-op, rewrite, replay, call-order, time, randomness, and state-drift behavior.
+`RequestApplicationNotProven` means an asserted scenario omitted a valid scenario-local opposite-trust control or reused its primary peer. `ForwardedValueNotProven` means an accepted-side counterfactual did not produce its generated or caller-selected value, or an identical request produced an unstable observation. Neither outcome is a pass. The controls reject observable no-op, rewrite, replay, call-order, time, randomness, and state-drift behavior.
 
 ## What ForwardTrust proves
 
