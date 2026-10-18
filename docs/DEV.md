@@ -29,10 +29,13 @@ The vulnerability audit has no build/test-only exception path: any package advis
 
 ## Release preparation
 
-The repository-controlled validator is the single changelog/version contract used before tagging and by the tag-triggered release workflow:
+The package gate validates the pre-frontier/pre-tag changelog state: the current package version stays under one leading `## [Unreleased]` section until release finalization. The release validator checks the exact finalization commit, commit date, changelog date, package version, and intended tag before tag creation. On a tag-triggered run, `-RequireTag` also verifies that the tag points to that exact commit.
 
 ```powershell
 pwsh -NoProfile -File scripts/test-changelog-contract.ps1 -ExpectedVersion 0.1.0 -ExpectedPackageVersion 0.1.0
+$releaseCommit = (git rev-parse HEAD).Trim()
+$releaseDate = (git show -s --format=%cs $releaseCommit).Trim()
+pwsh -NoProfile -File scripts/validate-release.ps1 -ExpectedVersion 0.1.0 -ExpectedPackageVersion 0.1.0 -ExpectedTag v0.1.0 -ExpectedCommit $releaseCommit -ExpectedReleaseDate $releaseDate -RequireIcon
 ```
 
-No tag or publication is part of local validation. Public GitHub Actions CI runs on pushes and pull requests; the release workflow remains tag-only and still requires the separate founder release authorization gates.
+The contract test covers first and subsequent releases, candidate versus finalized state, date/version/tag mismatches, an absent tag in tag mode, tags pointing at another commit, and changes left under `Unreleased`. The release workflow remains tag-only, uses `-RequireTag`, and still requires the separate founder release authorization gates. No tag or publication is part of the package gate.

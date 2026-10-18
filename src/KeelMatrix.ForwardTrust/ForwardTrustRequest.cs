@@ -13,11 +13,14 @@ public sealed class ForwardTrustRequest
     {
         Scenario = scenario;
         ImmediatePeerAddress = immediatePeerAddress;
-        Headers = new ReadOnlyDictionary<string, string>(
-            ForwardTrustScenario.CopyHeadersBounded(headers, out var limitsExceeded));
-        if (limitsExceeded)
+        var requestHeaders = ForwardTrustScenario.CopyHeadersBounded(
+            headers,
+            out var limitsExceeded,
+            out var duplicateHeaderNames);
+        Headers = new ReadOnlyDictionary<string, string>(requestHeaders);
+        if (limitsExceeded || duplicateHeaderNames)
         {
-            throw new InvalidOperationException("A validated request exceeded the bounded header limits.");
+            throw new InvalidOperationException("A validated request exceeded the bounded header contract.");
         }
         Path = scenario.Path;
     }

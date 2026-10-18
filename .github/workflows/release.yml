@@ -26,7 +26,9 @@ jobs:
         shell: pwsh
         run: |
           $version = $env:GITHUB_REF_NAME.Substring(1)
-          ./scripts/validate-release.ps1 -ExpectedVersion $version -ExpectedPackageVersion $version -ExpectedTag $env:GITHUB_REF_NAME -ExpectedCommit (git rev-parse HEAD) -RequireIcon
+          $releaseCommit = (git rev-parse HEAD).Trim()
+          $releaseDate = (git show -s --format=%cs $releaseCommit).Trim()
+          ./scripts/validate-release.ps1 -ExpectedVersion $version -ExpectedPackageVersion $version -ExpectedTag $env:GITHUB_REF_NAME -ExpectedCommit $releaseCommit -ExpectedReleaseDate $releaseDate -RequireTag -RequireIcon
       - name: Restore
         run: dotnet restore KeelMatrix.ForwardTrust.sln --configfile NuGet.config --force
       - name: Audit package vulnerabilities

@@ -120,9 +120,9 @@ var result = await new ForwardTrustVerifier().VerifyAsync([twoHop], sender);
 Assert.True(result.Succeeded, string.Join(" | ", result.Failures.Select(failure => failure.Message)));
 ```
 
-Scenario input must contain at least one item and is limited by `ForwardTrustVerifierOptions.MaxScenarioCount` (32 by default, 256 maximum); lazy input is stopped at the first item over that limit. Each scenario accepts at most 64 headers, 64 KiB of aggregate UTF-8 header-name/value bytes, 256 characters per header name, and 16 KiB per value. Header names must use HTTP token characters and values may contain horizontal tab, visible ASCII, or obs-text only. Violations return `MalformedScenario` before the request sender runs.
+Scenario input must contain at least one item and is limited by `ForwardTrustVerifierOptions.MaxScenarioCount` (32 by default, 256 maximum); lazy input is stopped at the first item over that limit. Each scenario accepts at most 64 headers, 64 KiB of aggregate UTF-8 header-name/value bytes, 256 characters per header name, and 16 KiB per value. Header names must use HTTP token characters, names that differ only by case are rejected, and values may contain horizontal tab, visible ASCII, or obs-text only. Violations return `MalformedScenario` before the request sender runs.
 
-For every asserted dimension, ForwardTrust issues original and generated-counterfactual requests through both peers, then reissues each identical request. A pass requires stable full identities, the exact generated value on the accepted side, and no change on the rejected side. These controls reject detectable no-op, rewrite, replay, call-order, time, randomness, and state-drift behavior; they do not authenticate the caller-provided sender.
+For every asserted dimension, ForwardTrust issues original and generated-counterfactual requests through both peers, then reissues each identical request. A pass requires the accepted counterfactual to match the exact generated value while preserving every non-target identity field. The rejected path must preserve its full identity. These controls reject detectable no-op, rewrite, replay, call-order, time, randomness, and state-drift behavior; they do not authenticate the caller-provided sender.
 
 The repository README is the canonical user-facing source. The packed project README mirrors this install, executable quick start, scope, diagnostics, and privacy contract.
 
@@ -132,7 +132,7 @@ The repository README is the canonical user-facing source. The packed project RE
 
 `RequestApplicationNotProven` means an asserted scenario omitted a valid scenario-local opposite-trust control or reused its primary peer. `ForwardedValueNotProven` means an accepted-side counterfactual did not produce the generated value or an identical request produced an unstable observation. Neither outcome is a pass.
 
-Diagnostics do not dump cookies, authorization data, response bodies, or unrelated headers. Duplicate scenario names and contradictory expectations are rejected before any request is sent.
+Diagnostics do not dump cookies, authorization data, response bodies, or unrelated headers. Duplicate scenario names, contradictory expectations, and case-insensitive duplicate header names are rejected before any request is sent.
 
 ## What ForwardTrust proves
 

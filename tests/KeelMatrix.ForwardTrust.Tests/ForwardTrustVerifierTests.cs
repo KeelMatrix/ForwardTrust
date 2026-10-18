@@ -59,7 +59,7 @@ public sealed class ForwardTrustVerifierTests
 
         var result = await new ForwardTrustVerifier().VerifyAsync([scenario], TestHostHarness.CreateSender(host.Server));
 
-        Assert.True(result.Succeeded);
+        Assert.True(result.Succeeded, FailureText(result));
     }
 
     [Fact]
@@ -332,6 +332,163 @@ public sealed class ForwardTrustVerifierTests
             (_, _) => ValueTask.FromResult(expected));
 
         Assert.True(result.Succeeded, FailureText(result));
+    }
+
+    [Theory]
+    [InlineData(false, false, false, false, "dictionary")]
+    [InlineData(false, true, false, false, "dictionary")]
+    [InlineData(true, true, false, false, "dictionary")]
+    [InlineData(false, false, true, false, "dictionary")]
+    [InlineData(false, true, false, true, "dictionary")]
+    [InlineData(false, true, false, false, "sorted")]
+    public async Task CaseInsensitiveHeaderNameCollisionsAreRejectedBeforeSenderInvocation(
+        bool reverse,
+        bool conflictingValues,
+        bool countAtLimit,
+        bool countOverLimit,
+        string dictionaryKind)
+    {
+        var entries = new List<KeyValuePair<string, string>>
+        {
+            new("X-Forwarded-For", "198.51.100.1"),
+            new("x-forwarded-for", conflictingValues ? "198.51.100.2" : "198.51.100.1")
+        };
+        if (reverse)
+        {
+            entries.Reverse();
+        }
+
+        IDictionary<string, string> mutableHeaders = dictionaryKind == "sorted"
+            ? new SortedDictionary<string, string>(StringComparer.Ordinal)
+            : new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var entry in entries)
+        {
+            mutableHeaders.Add(entry.Key, entry.Value);
+        }
+
+        var requestedCount = countOverLimit ? 65 : countAtLimit ? 64 : 2;
+        for (var index = 0; mutableHeaders.Count < requestedCount; index++)
+        {
+            mutableHeaders.Add($"X-Other-{index}", "value");
+        }
+
+        var scenario = new ForwardTrustScenario(
+            "case-variant-header-collision",
+            UntrustedProxy.ToString(),
+            new ForwardedIdentity("http", UntrustedProxy),
+            ForwardTrustHeaderExpectation.Rejected,
+            (IReadOnlyDictionary<string, string>)mutableHeaders);
+        var calls = 0;
+
+        var result = await new ForwardTrustVerifier().VerifyAsync(
+            [scenario],
+            (_, _) =>
+            {
+                calls++;
+                return ValueTask.FromResult(new ForwardedIdentity("http", UntrustedProxy));
+            });
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(0, calls);
+        Assert.Contains(result.Failures, failure => failure.Kind == ForwardTrustFailureKind.MalformedScenario);
+        if (!countOverLimit)
+        {
+            Assert.Contains(result.Failures, failure =>
+                failure.Kind == ForwardTrustFailureKind.MalformedScenario
+                && failure.Message.Contains("unique without regard to case", StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
+    public async Task MultipleCaseVariantsOfOneHeaderAreRejectedBeforeSenderInvocation()
+    {
+        var headers = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["X-Trace"] = "first",
+            ["x-trace"] = "second",
+            ["X-TRACE"] = "third"
+        };
+        var scenario = new ForwardTrustScenario(
+            "three-case-variant-header-names",
+            UntrustedProxy.ToString(),
+            new ForwardedIdentity("http", UntrustedProxy),
+            ForwardTrustHeaderExpectation.Rejected,
+            headers);
+        var calls = 0;
+
+        var result = await new ForwardTrustVerifier().VerifyAsync(
+            [scenario],
+            (_, _) =>
+            {
+                calls++;
+                return ValueTask.FromResult(new ForwardedIdentity("http", UntrustedProxy));
+            });
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(0, calls);
+        Assert.Contains(result.Failures, failure =>
+            failure.Kind == ForwardTrustFailureKind.MalformedScenario
+            && failure.Message.Contains("unique without regard to case", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task CaseInsensitiveSourceComparerStillAcceptsAnUnambiguousHeader()
+    {
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["X-Test"] = "value"
+        };
+        var scenario = new ForwardTrustScenario(
+            "case-insensitive-source-comparer",
+            UntrustedProxy.ToString(),
+            new ForwardedIdentity("http", UntrustedProxy),
+            ForwardTrustHeaderExpectation.Rejected,
+            headers);
+
+        var result = await new ForwardTrustVerifier().VerifyAsync(
+            [scenario],
+            static (_, _) => ValueTask.FromResult(new ForwardedIdentity("http", UntrustedProxy)));
+
+        Assert.True(result.Succeeded, FailureText(result));
+        Assert.Equal("value", scenario.Headers["x-test"]);
+    }
+
+    [Theory]
+    [InlineData(16_364, false)]
+    [InlineData(16_365, true)]
+    public async Task DuplicateHeaderNamesRemainRejectedAtAggregateSizeBoundary(int lastValueLength, bool exceedsLimit)
+    {
+        var headers = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["X-Trace"] = new string('a', 16_384),
+            ["x-trace"] = new string('b', 16_384),
+            ["X-A"] = new string('c', 16_384),
+            ["X-B"] = new string('d', lastValueLength)
+        };
+        var scenario = new ForwardTrustScenario(
+            "duplicate-header-at-aggregate-boundary",
+            UntrustedProxy.ToString(),
+            new ForwardedIdentity("http", UntrustedProxy),
+            ForwardTrustHeaderExpectation.Rejected,
+            headers);
+        var calls = 0;
+
+        var result = await new ForwardTrustVerifier().VerifyAsync(
+            [scenario],
+            (_, _) =>
+            {
+                calls++;
+                return ValueTask.FromResult(new ForwardedIdentity("http", UntrustedProxy));
+            });
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(0, calls);
+        Assert.Contains(result.Failures, failure =>
+            failure.Kind == ForwardTrustFailureKind.MalformedScenario
+            && failure.Message.Contains("unique without regard to case", StringComparison.Ordinal));
+        Assert.Equal(exceedsLimit, result.Failures.Any(failure =>
+            failure.Kind == ForwardTrustFailureKind.MalformedScenario
+            && failure.Message.Contains("bounded count or aggregate-size limit", StringComparison.Ordinal)));
     }
 
     [Fact]

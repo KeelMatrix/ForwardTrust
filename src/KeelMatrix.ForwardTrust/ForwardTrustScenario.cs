@@ -10,7 +10,7 @@ public sealed class ForwardTrustScenario
     internal const int MaxHeaderValueLength = 16 * 1024;
     internal const int MaxAggregateHeaderBytes = 64 * 1024;
 
-    /// <summary>Creates a scenario. Address, control, and header syntax are checked before any request is sent.</summary>
+    /// <summary>Creates a scenario. Address, control, header syntax, and case-insensitive header-name uniqueness are checked before any request is sent.</summary>
     /// <param name="name">The stable scenario name used in diagnostics.</param>
     /// <param name="immediatePeerAddress">The simulated peer address for the primary request.</param>
     /// <param name="expectedIdentity">The expected identity for the primary request.</param>
@@ -33,8 +33,12 @@ public sealed class ForwardTrustScenario
         HeaderExpectation = headerExpectation;
         Control = control;
         Path = path ?? string.Empty;
-        Headers = new ReadOnlyDictionary<string, string>(CopyHeadersBounded(headers, out var headerLimitsExceeded));
+        Headers = new ReadOnlyDictionary<string, string>(CopyHeadersBounded(
+            headers,
+            out var headerLimitsExceeded,
+            out var duplicateHeaderNames));
         HeaderLimitsExceeded = headerLimitsExceeded;
+        HasDuplicateHeaderNames = duplicateHeaderNames;
     }
 
     /// <summary>Gets the stable scenario name used in diagnostics.</summary>
@@ -60,12 +64,16 @@ public sealed class ForwardTrustScenario
 
     internal bool HeaderLimitsExceeded { get; }
 
+    internal bool HasDuplicateHeaderNames { get; }
+
     internal static Dictionary<string, string> CopyHeadersBounded(
         IReadOnlyDictionary<string, string>? headers,
-        out bool limitsExceeded)
+        out bool limitsExceeded,
+        out bool duplicateHeaderNames)
     {
         var copy = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         limitsExceeded = headers is not null && headers.Count > MaxHeaderCount;
+        duplicateHeaderNames = false;
         if (headers is null || limitsExceeded)
         {
             return copy;
@@ -102,7 +110,10 @@ public sealed class ForwardTrustScenario
                 break;
             }
 
-            copy[header.Key] = header.Value;
+            if (!copy.TryAdd(header.Key, header.Value))
+            {
+                duplicateHeaderNames = true;
+            }
         }
 
         return copy;

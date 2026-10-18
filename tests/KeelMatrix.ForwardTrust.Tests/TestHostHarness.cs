@@ -52,7 +52,10 @@ internal sealed class TestHostHarness : IAsyncDisposable
         return new TestHostHarness(host);
     }
 
-    public static ForwardTrustRequestSender CreateSender(TestServer server, Action<HttpContext>? afterSend = null)
+    public static ForwardTrustRequestSender CreateSender(
+        TestServer server,
+        Action<HttpContext>? afterSend = null,
+        Action<HttpContext, ForwardTrustRequest>? beforePipeline = null)
     {
         return async (request, cancellationToken) =>
         {
@@ -64,6 +67,8 @@ internal sealed class TestHostHarness : IAsyncDisposable
                 {
                     httpContext.Request.Headers[header.Key] = header.Value;
                 }
+
+                beforePipeline?.Invoke(httpContext, request);
             }, cancellationToken);
             afterSend?.Invoke(context);
 

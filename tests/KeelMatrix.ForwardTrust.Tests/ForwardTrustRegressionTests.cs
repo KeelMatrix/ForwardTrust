@@ -282,6 +282,165 @@ public sealed class ForwardTrustRegressionTests
             && failure.Message.Contains("generated forwarded-header counterfactual", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData("X-Forwarded-For", "scheme", ForwardTrustHeaderExpectation.Accepted)]
+    [InlineData("X-Forwarded-Proto", "client", ForwardTrustHeaderExpectation.Accepted)]
+    [InlineData("X-Forwarded-Host", "scheme-and-client", ForwardTrustHeaderExpectation.Accepted)]
+    [InlineData("X-Forwarded-For", "host", ForwardTrustHeaderExpectation.Rejected)]
+    [InlineData("X-Forwarded-Proto", "host", ForwardTrustHeaderExpectation.Rejected)]
+    [InlineData("X-Forwarded-Host", "client", ForwardTrustHeaderExpectation.Rejected)]
+    public async Task StableCrossDimensionCounterfactualEffectsFailOnRealPipeline(
+        string headerName,
+        string secondaryEffect,
+        ForwardTrustHeaderExpectation expectation)
+    {
+        const string sideEffectKey = "stable-counterfactual-side-effect";
+        var acceptedIdentity = headerName switch
+        {
+            "X-Forwarded-For" => new ForwardedIdentity("http", ExpectedClient),
+            "X-Forwarded-Proto" => new ForwardedIdentity("https", TrustedProxy),
+            _ => new ForwardedIdentity("http", TrustedProxy, "public.example")
+        };
+        var rejectedIdentity = new ForwardedIdentity(
+            "http",
+            UntrustedProxy,
+            headerName == "X-Forwarded-Host" ? "localhost" : null);
+        var headerValue = headerName switch
+        {
+            "X-Forwarded-For" => ExpectedClient.ToString(),
+            "X-Forwarded-Proto" => "https",
+            _ => "public.example"
+        };
+        var counterfactualValue = headerName switch
+        {
+            "X-Forwarded-For" => "203.0.113.254",
+            "X-Forwarded-Proto" => "http",
+            _ => "counterfactual.example"
+        };
+        var primaryIsAccepted = expectation == ForwardTrustHeaderExpectation.Accepted;
+        var primaryPeer = primaryIsAccepted ? TrustedProxy : UntrustedProxy;
+        var secondaryPeer = primaryIsAccepted ? UntrustedProxy : TrustedProxy;
+        var scenario = new ForwardTrustScenario(
+            $"stable-cross-dimension-{headerName}-{expectation}",
+            primaryPeer.ToString(),
+            primaryIsAccepted ? acceptedIdentity : rejectedIdentity,
+            expectation,
+            new Dictionary<string, string> { [headerName] = headerValue },
+            control: new ForwardTrustControl(
+                secondaryPeer.ToString(),
+                primaryIsAccepted ? rejectedIdentity : acceptedIdentity));
+
+        await using var host = await TestHostHarness.StartAsync(
+            ConfigureExactProxies,
+            configureServices: null,
+            configurePipeline: app => app.Use(async (context, next) =>
+            {
+                if (context.Items.TryGetValue(sideEffectKey, out var marked) && marked is true)
+                {
+                    ApplyStableSecondaryEffect(context, secondaryEffect);
+                }
+
+                await next();
+            }));
+        var sender = TestHostHarness.CreateSender(
+            host.Server,
+            beforePipeline: (context, request) =>
+            {
+                if (request.ImmediatePeerAddress.Equals(
+                        expectation == ForwardTrustHeaderExpectation.Accepted ? TrustedProxy : UntrustedProxy)
+                    && request.Headers.TryGetValue(headerName, out var value)
+                    && string.Equals(value, counterfactualValue, StringComparison.OrdinalIgnoreCase))
+                {
+                    context.Items[sideEffectKey] = true;
+                }
+            });
+
+        var result = await new ForwardTrustVerifier().VerifyAsync([scenario], sender);
+
+        Assert.False(result.Succeeded, $"Scenario unexpectedly succeeded. {string.Join(" | ", result.Failures.Select(static failure => failure.Message))}");
+        Assert.Contains(result.Failures, failure =>
+            failure.Kind == ForwardTrustFailureKind.ForwardedValueNotProven
+            && failure.Message.Contains("non-target identity field", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task StableSecondaryEffectAcrossIpv6MultiHopCounterfactualFailsClosed()
+    {
+        const string sideEffectKey = "ipv6-multihop-counterfactual-side-effect";
+        var firstProxy = IPAddress.Parse("2001:db8::10");
+        var secondProxy = IPAddress.Parse("2001:db8::11");
+        var untrustedProxy = IPAddress.Parse("2001:db8::20");
+        var expectedClient = IPAddress.Parse("2001:db8::25");
+        var counterfactualClient = "203.0.113.254";
+        var scenario = new ForwardTrustScenario(
+            "ipv6-multihop-counterfactual-side-effect",
+            firstProxy.ToString(),
+            new ForwardedIdentity("http", expectedClient),
+            ForwardTrustHeaderExpectation.Accepted,
+            new Dictionary<string, string>
+            {
+                ["X-Forwarded-For"] = $"{expectedClient}, {secondProxy}"
+            },
+            control: new ForwardTrustControl(untrustedProxy.ToString(), new ForwardedIdentity("http", untrustedProxy)));
+
+        await using var host = await TestHostHarness.StartAsync(
+            options =>
+            {
+                options.ForwardedHeaders = ForwardedHeaders.XForwardedFor;
+                options.KnownProxies.Clear();
+                options.KnownProxies.Add(firstProxy);
+                options.KnownProxies.Add(secondProxy);
+                options.ForwardLimit = 2;
+            },
+            configureServices: null,
+            configurePipeline: app => app.Use(async (context, next) =>
+            {
+                if (context.Items.TryGetValue(sideEffectKey, out var marked) && marked is true)
+                {
+                    context.Request.Scheme = "https";
+                    context.Request.Host = new HostString("counterfactual-side-effect.example");
+                }
+
+                await next();
+            }));
+        var sender = TestHostHarness.CreateSender(
+            host.Server,
+            beforePipeline: (context, request) =>
+            {
+                if (request.ImmediatePeerAddress.Equals(firstProxy)
+                    && request.Headers.TryGetValue("X-Forwarded-For", out var value)
+                    && string.Equals(value.Split(',', 2)[0].Trim(), counterfactualClient, StringComparison.Ordinal))
+                {
+                    context.Items[sideEffectKey] = true;
+                }
+            });
+
+        var result = await new ForwardTrustVerifier().VerifyAsync([scenario], sender);
+
+        Assert.False(result.Succeeded, $"Scenario unexpectedly succeeded. {string.Join(" | ", result.Failures.Select(static failure => failure.Message))}");
+        Assert.Contains(result.Failures, failure =>
+            failure.Kind == ForwardTrustFailureKind.ForwardedValueNotProven
+            && failure.Message.Contains("non-target identity field", StringComparison.Ordinal));
+    }
+
+    private static void ApplyStableSecondaryEffect(HttpContext context, string secondaryEffect)
+    {
+        if (secondaryEffect.Contains("scheme", StringComparison.Ordinal))
+        {
+            context.Request.Scheme = "https";
+        }
+
+        if (secondaryEffect.Contains("host", StringComparison.Ordinal))
+        {
+            context.Request.Host = new HostString("counterfactual-side-effect.example");
+        }
+
+        if (secondaryEffect.Contains("client", StringComparison.Ordinal))
+        {
+            context.Connection.RemoteIpAddress = IPAddress.Parse("198.51.100.77");
+        }
+    }
+
     [Fact]
     public async Task EachForwardedDimensionNeedsItsOwnAttribution()
     {
@@ -328,7 +487,8 @@ public sealed class ForwardTrustRegressionTests
 
         var result = await new ForwardTrustVerifier().VerifyAsync([scenario], TestHostHarness.CreateSender(host.Server));
 
-        Assert.Equal(expectedSuccess, result.Succeeded);
+        var failureText = string.Join(" | ", result.Failures.Select(static failure => $"{failure.Kind}:{failure.Dimension}:{failure.Message}"));
+        Assert.True(expectedSuccess == result.Succeeded, failureText);
         if (expectedSuccess)
         {
             Assert.Equal(ExpectedClient, result.Scenarios[0].ObservedIdentity!.ClientAddress);

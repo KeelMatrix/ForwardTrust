@@ -272,6 +272,15 @@ public sealed class ForwardTrustVerifier
                 "The accepted-side observation did not reproducibly match the generated forwarded-header counterfactual for this scenario's control pair. The result is not proven to be caused by forwarded-header handling."));
         }
 
+        if (!NonTargetDimensionsEqual(dimension, accepted, acceptedCounterfactual))
+        {
+            failures.Add(new ForwardTrustFailure(
+                scenario.Name,
+                ForwardTrustFailureKind.ForwardedValueNotProven,
+                dimension,
+                "The accepted-side counterfactual changed a non-target identity field. The result is not proven to be caused only by this forwarded-header dimension."));
+        }
+
         if (!SameDimension(dimension, rejected, rejectedCounterfactual))
         {
             failures.Add(new ForwardTrustFailure(
@@ -279,6 +288,15 @@ public sealed class ForwardTrustVerifier
                 ForwardTrustFailureKind.UntrustedHeaderAccepted,
                 dimension,
                 "Changing the forwarded header changed the rejected-side observation. Check trusted proxy/network configuration and middleware placement; do not broaden trust as a convenience fix."));
+        }
+
+        if (!NonTargetDimensionsEqual(dimension, rejected, rejectedCounterfactual))
+        {
+            failures.Add(new ForwardTrustFailure(
+                scenario.Name,
+                ForwardTrustFailureKind.ForwardedValueNotProven,
+                dimension,
+                "The rejected-side counterfactual changed a non-target identity field. The request identity is not stable enough to prove this trust boundary."));
         }
     }
 
@@ -354,6 +372,11 @@ public sealed class ForwardTrustVerifier
         if (scenario.HeaderLimitsExceeded)
         {
             failures.Add(Malformed(scenario, "The request headers exceed the bounded count or aggregate-size limit."));
+        }
+
+        if (scenario.HasDuplicateHeaderNames)
+        {
+            failures.Add(Malformed(scenario, "Request header names must be unique without regard to case."));
         }
 
         if (!Enum.IsDefined(scenario.HeaderExpectation))
@@ -525,9 +548,15 @@ public sealed class ForwardTrustVerifier
         string headerName,
         string counterfactualValue)
     {
+        var originalHeaderValue = request.Headers[headerName];
+        var firstSeparator = originalHeaderValue.IndexOf(',');
+        // Keep later hops aligned across forwarded dimensions while changing the effective (leftmost) value.
+        var counterfactualHeaderValue = firstSeparator < 0
+            ? counterfactualValue
+            : string.Concat(counterfactualValue, originalHeaderValue.AsSpan(firstSeparator));
         var headers = new Dictionary<string, string>(request.Headers, StringComparer.OrdinalIgnoreCase)
         {
-            [headerName] = counterfactualValue
+            [headerName] = counterfactualHeaderValue
         };
         return request with { Headers = headers };
     }
@@ -560,6 +589,20 @@ public sealed class ForwardTrustVerifier
             ForwardTrustDimension.Host => string.Equals(left.Host, right.Host, StringComparison.OrdinalIgnoreCase),
             ForwardTrustDimension.ClientAddress => AddressesEqual(left.ClientAddress, right.ClientAddress),
             _ => true
+        };
+    }
+
+    private static bool NonTargetDimensionsEqual(ForwardTrustDimension dimension, ForwardedIdentity left, ForwardedIdentity right)
+    {
+        return dimension switch
+        {
+            ForwardTrustDimension.Scheme => string.Equals(left.Host, right.Host, StringComparison.OrdinalIgnoreCase)
+                && AddressesEqual(left.ClientAddress, right.ClientAddress),
+            ForwardTrustDimension.Host => string.Equals(left.Scheme, right.Scheme, StringComparison.OrdinalIgnoreCase)
+                && AddressesEqual(left.ClientAddress, right.ClientAddress),
+            ForwardTrustDimension.ClientAddress => string.Equals(left.Scheme, right.Scheme, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(left.Host, right.Host, StringComparison.OrdinalIgnoreCase),
+            _ => IdentitiesEqual(left, right)
         };
     }
 
