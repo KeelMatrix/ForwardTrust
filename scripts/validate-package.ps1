@@ -27,7 +27,8 @@ if ($ExpectedVersion -notmatch '^\d+\.\d+\.\d+$') {
 }
 
 $rootIcon = Join-Path $root 'icon.png'
-if ($RequireIcon -and -not (Test-Path -LiteralPath $rootIcon -PathType Leaf)) {
+$iconIncluded = Test-Path -LiteralPath $rootIcon -PathType Leaf
+if ($RequireIcon -and -not $iconIncluded) {
     Fail "Release validation requires the founder-owned icon at: $rootIcon"
 }
 
@@ -79,7 +80,7 @@ function Read-ArchiveBytes($Archive, [string]$EntryName) {
     }
 }
 
-if ($RequireIcon) {
+if ($iconIncluded) {
     Assert-PngProperties ([IO.File]::ReadAllBytes($rootIcon)) 'Repository-root icon.png'
 }
 
@@ -134,7 +135,7 @@ function Assert-Nupkg($path) {
             'README.md'
         )
         $allowed += 'package/services/metadata/core-properties/nuget.psmdcp'
-        if ($RequireIcon) {
+        if ($iconIncluded) {
             $allowed += 'icon.png'
         }
 
@@ -144,7 +145,7 @@ function Assert-Nupkg($path) {
         }
 
         $required = @('_rels/.rels', '[Content_Types].xml', "$packageId.nuspec", "lib/net8.0/$packageId.dll", "lib/net8.0/$packageId.xml", 'README.md')
-        if ($RequireIcon) { $required += 'icon.png' }
+        if ($iconIncluded) { $required += 'icon.png' }
         foreach ($entry in $required) {
             if ($entry -notin $names) { Fail "Required .nupkg entry is missing: $entry" }
         }
@@ -159,8 +160,8 @@ function Assert-Nupkg($path) {
         if ($metadata.description -ne $description) { Fail 'Package description mismatch.' }
         if ($metadata.readme -ne 'README.md') { Fail 'Package README metadata is missing or incorrect.' }
         if ($metadata.license.type -ne 'expression' -or $metadata.license.'#text' -ne 'MIT') { Fail 'Package MIT license metadata is missing or incorrect.' }
-        if ($RequireIcon -and $metadata.icon -ne 'icon.png') { Fail 'Required package icon metadata is missing or incorrect.' }
-        if ($RequireIcon) {
+        if ($iconIncluded -and $metadata.icon -ne 'icon.png') { Fail 'Repository-root package icon metadata is missing or incorrect.' }
+        if ($iconIncluded) {
             Assert-PngProperties (Read-ArchiveBytes $archive 'icon.png') 'Embedded package icon.png'
         }
         $tfmEntries = @($names | Where-Object { $_ -match '^lib/([^/]+)/' } | ForEach-Object { ($_ -split '/')[1] } | Select-Object -Unique)
@@ -199,4 +200,4 @@ function Assert-Snupkg($path) {
 
 $nupkgEntries = Assert-Nupkg $nupkgPath
 $snupkgEntries = Assert-Snupkg $snupkgPath
-Write-Output "Package archive validation passed: nupkg=$nupkgEntries entries; snupkg=$snupkgEntries entries; id=$packageId; version=$ExpectedVersion; tfm=net8.0; iconRequired=$RequireIcon"
+Write-Output "Package archive validation passed: nupkg=$nupkgEntries entries; snupkg=$snupkgEntries entries; id=$packageId; version=$ExpectedVersion; tfm=net8.0; iconIncluded=$iconIncluded; iconRequired=$RequireIcon"
