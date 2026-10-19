@@ -28,7 +28,7 @@ pwsh -NoProfile -File scripts/package-gate.ps1
 - No external network, DNS, cloud metadata, or telemetry call is part of v1.
 - Diagnostics never include cookies, bearer tokens, arbitrary response bodies, or unrelated headers.
 - Trusted proxy/network configuration remains the application's responsibility; broad trust is never a recommended fix.
-- The repository-root `icon.png` is founder-owned and must not be created, copied, edited, or removed by engineering work.
+- The package includes `icon.png` from the repository root; it must be a 512x512 PNG no larger than 200 KB.
 
 ## Validation strategy
 
