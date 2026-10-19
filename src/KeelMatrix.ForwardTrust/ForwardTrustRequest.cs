@@ -6,12 +6,22 @@ namespace KeelMatrix.ForwardTrust;
 /// <summary>Describes the request inputs a caller-provided test host must apply.</summary>
 public sealed class ForwardTrustRequest
 {
-    internal ForwardTrustRequest(ForwardTrustScenario scenario, IPAddress immediatePeerAddress)
+    internal ForwardTrustRequest(
+        ForwardTrustScenario scenario,
+        IPAddress immediatePeerAddress,
+        IReadOnlyDictionary<string, string> headers)
     {
         Scenario = scenario;
         ImmediatePeerAddress = immediatePeerAddress;
-        Headers = new ReadOnlyDictionary<string, string>(
-            new Dictionary<string, string>(scenario.Headers, StringComparer.OrdinalIgnoreCase));
+        var requestHeaders = ForwardTrustScenario.CopyHeadersBounded(
+            headers,
+            out var limitsExceeded,
+            out var duplicateHeaderNames);
+        Headers = new ReadOnlyDictionary<string, string>(requestHeaders);
+        if (limitsExceeded || duplicateHeaderNames)
+        {
+            throw new InvalidOperationException("A validated request exceeded the bounded header contract.");
+        }
         Path = scenario.Path;
     }
 
