@@ -29,7 +29,7 @@ The vulnerability audit has no build/test-only exception path: any package advis
 
 ## Release preparation
 
-The package gate validates the pre-frontier/pre-tag changelog state: the current package version stays under one leading `## [Unreleased]` section until release finalization. The release validator checks the exact finalization commit, commit date, changelog date, package version, and intended tag before tag creation. On a tag-triggered run, `-RequireTag` also verifies that the tag points to that exact commit.
+The package gate validates the changelog before release finalization: the current package version stays under one leading `## [Unreleased]` section until finalization. The release validator checks the exact finalization commit, commit date, changelog date, package version, and intended tag before tag creation. On a tag-triggered run, `-RequireTag` also verifies that the tag points to that exact commit.
 
 ```powershell
 pwsh -NoProfile -File scripts/test-changelog-contract.ps1 -ExpectedVersion 0.1.0 -ExpectedPackageVersion 0.1.0

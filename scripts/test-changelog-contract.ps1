@@ -192,7 +192,7 @@ function Add-SecondCommit([pscustomobject]$Fixture) {
 }
 
 try {
-    Invoke-CandidateContract $root $ExpectedVersion $true 'repository pre-frontier candidate'
+    Invoke-CandidateContract $root $ExpectedVersion $true 'unreleased repository candidate'
 
     $firstCandidate = Join-Path $tempRoot 'first-candidate'
     Write-Fixture $firstCandidate '0.1.0' @'

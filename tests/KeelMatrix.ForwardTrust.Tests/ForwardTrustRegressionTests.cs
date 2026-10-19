@@ -44,7 +44,7 @@ public sealed class ForwardTrustRegressionTests
     }
 
     [Fact]
-    public async Task ReviewersRejectedScenarioFalseSafeProbesFailClosed()
+    public async Task RejectedScenariosWithStaleOrDroppedHeadersFailClosed()
     {
         var headers = new Dictionary<string, string>
         {
@@ -148,7 +148,7 @@ public sealed class ForwardTrustRegressionTests
     }
 
     [Fact]
-    public async Task ReviewersDefaultCoincidenceProbesFailClosedWithNoOpSender()
+    public async Task DefaultCoincidenceProbesFailClosedWithNoOpSender()
     {
         var trusted = new ForwardTrustScenario(
             "trusted-default-coincidence",

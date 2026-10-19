@@ -33,6 +33,6 @@ public enum ForwardTrustFailureKind
     /// <summary>The scenario did not provide a load-bearing, scenario-local opposite-trust control.</summary>
     RequestApplicationNotProven,
 
-    /// <summary>A counterfactual did not produce the generated or caller-selected value, or an identical request was not repeatable.</summary>
+    /// <summary>No supported forwarded dimension was asserted, a counterfactual did not produce its expected value, or an identical request was not repeatable.</summary>
     ForwardedValueNotProven
 }

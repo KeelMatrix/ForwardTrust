@@ -137,6 +137,48 @@ public sealed class ForwardTrustVerifierTests
         Assert.Contains(result.Failures, failure => failure.Kind == ForwardTrustFailureKind.MalformedScenario);
     }
 
+    [Theory]
+    [InlineData(ForwardTrustHeaderExpectation.Accepted, null, null)]
+    [InlineData(ForwardTrustHeaderExpectation.Rejected, null, null)]
+    [InlineData(ForwardTrustHeaderExpectation.Accepted, "X-Client-IP", null)]
+    [InlineData(ForwardTrustHeaderExpectation.Rejected, "X-Client-IP", null)]
+    [InlineData(ForwardTrustHeaderExpectation.Accepted, "X-Forwarded-Host", null)]
+    [InlineData(ForwardTrustHeaderExpectation.Rejected, "X-Forwarded-Host", null)]
+    [InlineData(ForwardTrustHeaderExpectation.Accepted, "X-Forwarded-Host", "")]
+    [InlineData(ForwardTrustHeaderExpectation.Rejected, "X-Forwarded-Host", "")]
+    [InlineData(ForwardTrustHeaderExpectation.Accepted, "X-Forwarded-Host", "  ")]
+    [InlineData(ForwardTrustHeaderExpectation.Rejected, "X-Forwarded-Host", "  ")]
+    public async Task ScenarioWithoutAnAssertedForwardedDimensionFailsBeforeSenderRuns(
+        ForwardTrustHeaderExpectation expectation,
+        string? headerName,
+        string? expectedHost)
+    {
+        var calls = 0;
+        IReadOnlyDictionary<string, string>? headers = headerName is null
+            ? null
+            : new Dictionary<string, string> { [headerName] = "public.example" };
+        var scenario = new ForwardTrustScenario(
+            "no-forwarded-dimension",
+            UntrustedProxy.ToString(),
+            new ForwardedIdentity("http", UntrustedProxy, expectedHost),
+            expectation,
+            headers);
+
+        var result = await new ForwardTrustVerifier().VerifyAsync(
+            [scenario],
+            (_, _) =>
+            {
+                calls++;
+                return ValueTask.FromResult(new ForwardedIdentity("http", UntrustedProxy));
+            });
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(0, calls);
+        Assert.Contains(result.Failures, failure =>
+            failure.Kind == ForwardTrustFailureKind.ForwardedValueNotProven
+            && failure.Dimension == ForwardTrustDimension.Headers);
+    }
+
     [Fact]
     public async Task UndefinedHeaderExpectationIsReportedBeforeSenderRuns()
     {
