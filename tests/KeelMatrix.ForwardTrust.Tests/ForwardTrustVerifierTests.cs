@@ -361,17 +361,21 @@ public sealed class ForwardTrustVerifierTests
     public async Task HeaderCountAtLimitRemainsEligibleForValidation()
     {
         var expected = new ForwardedIdentity("http", UntrustedProxy);
-        var headers = Enumerable.Range(0, 64).ToDictionary(index => $"X-Test-{index}", _ => "value");
+        var headers = Enumerable.Range(0, 63).ToDictionary(index => $"X-Test-{index}", _ => "value");
+        headers["X-Forwarded-For"] = ExpectedClient.ToString();
         var scenario = new ForwardTrustScenario(
             "maximum-header-count",
             UntrustedProxy.ToString(),
             expected,
             ForwardTrustHeaderExpectation.Rejected,
-            headers);
+            headers,
+            control: new ForwardTrustControl(
+                TrustedProxy.ToString(),
+                new ForwardedIdentity("http", ExpectedClient)));
 
         var result = await new ForwardTrustVerifier().VerifyAsync(
             [scenario],
-            (_, _) => ValueTask.FromResult(expected));
+            ForwardForTrustedProxy);
 
         Assert.True(result.Succeeded, FailureText(result));
     }
@@ -478,18 +482,22 @@ public sealed class ForwardTrustVerifierTests
     {
         var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            ["X-Test"] = "value"
+            ["X-Test"] = "value",
+            ["X-Forwarded-For"] = ExpectedClient.ToString()
         };
         var scenario = new ForwardTrustScenario(
             "case-insensitive-source-comparer",
             UntrustedProxy.ToString(),
             new ForwardedIdentity("http", UntrustedProxy),
             ForwardTrustHeaderExpectation.Rejected,
-            headers);
+            headers,
+            control: new ForwardTrustControl(
+                TrustedProxy.ToString(),
+                new ForwardedIdentity("http", ExpectedClient)));
 
         var result = await new ForwardTrustVerifier().VerifyAsync(
             [scenario],
-            static (_, _) => ValueTask.FromResult(new ForwardedIdentity("http", UntrustedProxy)));
+            ForwardForTrustedProxy);
 
         Assert.True(result.Succeeded, FailureText(result));
         Assert.Equal("value", scenario.Headers["x-test"]);
@@ -566,18 +574,22 @@ public sealed class ForwardTrustVerifierTests
             ["X-Test-0"] = new string('x', 16_384),
             ["X-Test-1"] = new string('x', 16_384),
             ["X-Test-2"] = new string('x', 16_384),
-            ["X-Test-3"] = new string('x', 16_352)
+            ["X-Test-3"] = new string('x', 16_324),
+            ["X-Forwarded-For"] = ExpectedClient.ToString()
         };
         var scenario = new ForwardTrustScenario(
             "maximum-header-bytes",
             UntrustedProxy.ToString(),
             expected,
             ForwardTrustHeaderExpectation.Rejected,
-            headers);
+            headers,
+            control: new ForwardTrustControl(
+                TrustedProxy.ToString(),
+                new ForwardedIdentity("http", ExpectedClient)));
 
         var result = await new ForwardTrustVerifier().VerifyAsync(
             [scenario],
-            (_, _) => ValueTask.FromResult(expected));
+            ForwardForTrustedProxy);
 
         Assert.True(result.Succeeded, FailureText(result));
     }
@@ -675,11 +687,18 @@ public sealed class ForwardTrustVerifierTests
             peer,
             expected,
             ForwardTrustHeaderExpectation.Rejected,
-            new Dictionary<string, string> { ["X-Test"] = "value\twith\u0080" });
+            new Dictionary<string, string>
+            {
+                ["X-Test"] = "value\twith\u0080",
+                ["X-Forwarded-For"] = ExpectedClient.ToString()
+            },
+            control: new ForwardTrustControl(
+                TrustedProxy.ToString(),
+                new ForwardedIdentity("http", ExpectedClient)));
 
         var result = await new ForwardTrustVerifier().VerifyAsync(
             [scenario],
-            (_, _) => ValueTask.FromResult(expected));
+            ForwardForTrustedProxy);
 
         Assert.True(result.Succeeded, FailureText(result));
     }
@@ -778,6 +797,19 @@ public sealed class ForwardTrustVerifierTests
         return new ForwardTrustControl(
             peer.ToString(),
             new ForwardedIdentity("http", peer, assertHost ? "localhost" : null));
+    }
+
+    private static ValueTask<ForwardedIdentity> ForwardForTrustedProxy(
+        ForwardTrustRequest request,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var clientAddress = request.ImmediatePeerAddress.Equals(TrustedProxy)
+            && request.Headers.TryGetValue("X-Forwarded-For", out var value)
+            && IPAddress.TryParse(value, out var forwardedAddress)
+                ? forwardedAddress
+                : request.ImmediatePeerAddress;
+        return ValueTask.FromResult(new ForwardedIdentity("http", clientAddress));
     }
 
     private static string FailureText(ForwardTrustResult result)
