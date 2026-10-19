@@ -6,7 +6,7 @@ Please do not open a public issue for a suspected vulnerability. Use GitHub's pr
 
 ## Supported versions
 
-Only the latest maintained release receives security fixes. ForwardTrust is a test package: it verifies application-pipeline behavior and does not secure, configure, or discover production infrastructure.
+Only the latest maintained release receives security fixes. ForwardTrust is a test package: under the documented contract that the caller-provided sender executes every request, it verifies application-pipeline behavior and does not secure, configure, or discover production infrastructure. A deliberately fabricated, self-consistent sender is outside this black-box verifier's detectable boundary.
 
 ## Safe configuration
 
