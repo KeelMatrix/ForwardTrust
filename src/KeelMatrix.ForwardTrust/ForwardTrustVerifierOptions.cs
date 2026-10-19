@@ -1,6 +1,6 @@
 ﻿namespace KeelMatrix.ForwardTrust;
 
-/// <summary>Controls finite, deterministic verifier limits.</summary>
+/// <summary>Controls finite verifier limits.</summary>
 public sealed class ForwardTrustVerifierOptions
 {
     /// <summary>Maximum number of scenarios accepted by one verification call.</summary>

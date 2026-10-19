@@ -2,7 +2,13 @@
 param([string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot))
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot '../build/Invoke-NestedPwsh.ps1')
 $root = (Resolve-Path $RepositoryRoot).Path
+$launchGuard = Join-Path $root 'build/Test-NestedPwshLaunch.ps1'
+& $launchGuard -SelfTest
+if ($LASTEXITCODE -ne 0) { throw 'Nested PowerShell launch guard self-test failed.' }
+& $launchGuard
+if ($LASTEXITCODE -ne 0) { throw 'Nested PowerShell launch guard failed.' }
 Set-Location $root
 $artifactRoot = Join-Path $root 'artifacts'
 $packages = Join-Path $artifactRoot 'packages'
@@ -15,7 +21,7 @@ New-Item -ItemType Directory -Path $packages, $smokeFeed, $consumerPackages | Ou
 function Invoke-Step([string]$Command, [scriptblock]$Action) {
     Write-Output "`n> $Command"
     & $Action
-    if ($LASTEXITCODE -ne 0) { throw "Command failed with exit code $LASTEXITCODE: $Command" }
+    if ($LASTEXITCODE -ne 0) { throw "Command failed with exit code ${LASTEXITCODE}: $Command" }
 }
 
 Invoke-Step 'dotnet restore KeelMatrix.ForwardTrust.sln --configfile NuGet.config --force' {
@@ -33,40 +39,30 @@ Invoke-Step 'dotnet format KeelMatrix.ForwardTrust.sln --verify-no-changes --no-
 Invoke-Step 'dotnet pack src/KeelMatrix.ForwardTrust/KeelMatrix.ForwardTrust.csproj -c Release --no-build -o artifacts/packages' {
     dotnet pack src/KeelMatrix.ForwardTrust/KeelMatrix.ForwardTrust.csproj -c Release --no-build -o $packages
 }
-Invoke-Step 'dotnet list KeelMatrix.ForwardTrust.sln package --vulnerable --include-transitive --no-restore' {
-    dotnet list KeelMatrix.ForwardTrust.sln package --vulnerable --include-transitive --no-restore
+Invoke-Step 'pwsh -NoProfile -File scripts/Normalize-PackageArchives.ps1 -PackageDirectory artifacts/packages' {
+    Invoke-NestedPwsh -NoProfile -File scripts/Normalize-PackageArchives.ps1 -PackageDirectory $packages
+}
+Invoke-Step 'pwsh -NoProfile -File scripts/Test-VulnerabilityAudit.ps1' {
+    Invoke-NestedPwsh -NoProfile -File scripts/Test-VulnerabilityAudit.ps1
+}
+Invoke-Step 'pwsh -NoProfile -File scripts/Invoke-VulnerabilityAudit.ps1 -ReportPath artifacts/vulnerability-audit.json' {
+    Invoke-NestedPwsh -NoProfile -File scripts/Invoke-VulnerabilityAudit.ps1 -ReportPath (Join-Path $artifactRoot 'vulnerability-audit.json')
+}
+Invoke-Step 'pwsh -NoProfile -File scripts/Test-PackageReproducibility.ps1 -PackageDirectory artifacts/packages -ExpectedVersion 0.1.0' {
+    Invoke-NestedPwsh -NoProfile -File scripts/Test-PackageReproducibility.ps1 -PackageDirectory $packages -ExpectedVersion '0.1.0'
 }
 Invoke-Step 'pwsh -NoProfile -File scripts/test-changelog-contract.ps1 -ExpectedVersion 0.1.0 -ExpectedPackageVersion 0.1.0' {
-    pwsh -NoProfile -File scripts/test-changelog-contract.ps1 -ExpectedVersion 0.1.0 -ExpectedPackageVersion 0.1.0
+    Invoke-NestedPwsh -NoProfile -File scripts/test-changelog-contract.ps1 -ExpectedVersion 0.1.0 -ExpectedPackageVersion 0.1.0
 }
 
 $nupkg = Join-Path $packages 'KeelMatrix.ForwardTrust.0.1.0.nupkg'
 $snupkg = Join-Path $packages 'KeelMatrix.ForwardTrust.0.1.0.snupkg'
-if (-not (Test-Path $nupkg) -or -not (Test-Path $snupkg)) { throw 'Expected exactly one .nupkg and one .snupkg was not produced.' }
-$unexpected = Get-ChildItem $packages -File | Where-Object { $_.Name -notin @('KeelMatrix.ForwardTrust.0.1.0.nupkg', 'KeelMatrix.ForwardTrust.0.1.0.snupkg') }
-if ($unexpected) { throw "Unexpected package artifact(s): $($unexpected.Name -join ', ')" }
+Invoke-Step 'pwsh -NoProfile -File scripts/validate-package.ps1 -PackageDirectory artifacts/packages -ExpectedVersion 0.1.0' {
+    Invoke-NestedPwsh -NoProfile -File scripts/validate-package.ps1 -PackageDirectory $packages -ExpectedVersion 0.1.0
+}
 
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-$archive = [IO.Compression.ZipFile]::OpenRead($nupkg)
-try {
-    $names = @($archive.Entries | ForEach-Object FullName)
-    $nuspec = $archive.Entries | Where-Object FullName -like '*.nuspec'
-    if (-not $nuspec) { throw 'Package has no nuspec.' }
-    if ($names -match '(?i)(^|/)(\.env|\.env\.|keelmatrix\.telemetry\.json|.*\.(pfx|p12|pem|key|snk))$') { throw 'Package contains a sensitive file.' }
-    if ('README.md' -notin $names) { throw 'Package does not contain its project-local README.md at package root.' }
-    $reader = New-Object IO.StreamReader($nuspec.Open())
-    try {
-        $nuspecXml = [xml]$reader.ReadToEnd()
-    }
-    finally {
-        $reader.Dispose()
-    }
-    $metadata = $nuspecXml.package.metadata
-    if ($metadata.id -ne 'KeelMatrix.ForwardTrust' -or $metadata.version -ne '0.1.0') { throw 'Package identity/version mismatch.' }
-    if ($metadata.description -ne 'Verify ASP.NET Core forwarded-header trust behavior with executable integration-test scenarios.') { throw 'Package description mismatch.' }
-    Write-Output "Archive inspection passed: $($names.Count) entries; id=$($metadata.id); version=$($metadata.version); tfm=net8.0"
-finally {
-    $archive.Dispose()
+Invoke-Step 'pwsh -NoProfile -File scripts/validate-quickstart.ps1 -PackagePath artifacts/packages/KeelMatrix.ForwardTrust.0.1.0.nupkg -ExpectedVersion 0.1.0' {
+    Invoke-NestedPwsh -NoProfile -File scripts/validate-quickstart.ps1 -PackagePath $nupkg -ExpectedVersion 0.1.0
 }
 
 Copy-Item -LiteralPath $nupkg -Destination $smokeFeed
@@ -83,7 +79,7 @@ $icon = Join-Path $root 'icon.png'
 if (Test-Path $icon) {
     Write-Output "Icon path present: $icon"
 } else {
-    Write-Warning "Founder-owned icon is not present at required path: $icon"
+    Write-Warning "Optional package icon is not present: $icon"
 }
 Write-Output "Package gate passed. Hashes:"
 Get-FileHash $nupkg, $snupkg -Algorithm SHA256 | Format-Table -AutoSize
