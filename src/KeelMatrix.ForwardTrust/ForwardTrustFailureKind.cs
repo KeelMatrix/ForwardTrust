@@ -24,6 +24,15 @@ public enum ForwardTrustFailureKind
     /// <summary>The scenario was invalid and no request was sent.</summary>
     MalformedScenario,
 
-    /// <summary>The caller-provided host or probe did not return a usable identity.</summary>
-    HostProbeFailure
+    /// <summary>The caller-provided host or probe exceeded the finite request timeout.</summary>
+    HostProbeFailure,
+
+    /// <summary>The caller-provided host or probe failed before it returned an identity.</summary>
+    HostSetupFailure,
+
+    /// <summary>The scenario did not provide a load-bearing, scenario-local opposite-trust control.</summary>
+    RequestApplicationNotProven,
+
+    /// <summary>No supported forwarded dimension was asserted, a counterfactual did not produce its expected value, or an identical request was not repeatable.</summary>
+    ForwardedValueNotProven
 }

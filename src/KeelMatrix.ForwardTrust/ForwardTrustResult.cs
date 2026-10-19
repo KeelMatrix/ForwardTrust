@@ -1,6 +1,6 @@
 ﻿namespace KeelMatrix.ForwardTrust;
 
-/// <summary>Contains the deterministic result of a verification run.</summary>
+/// <summary>Contains the ordered result of a verification run.</summary>
 public sealed class ForwardTrustResult
 {
     internal ForwardTrustResult(IReadOnlyList<ForwardTrustScenarioResult> scenarios)
