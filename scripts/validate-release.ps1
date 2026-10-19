@@ -50,7 +50,7 @@ function Assert-PngProperties([byte[]]$Bytes, [string]$Description) {
 
 $rootIcon = Join-Path $root 'icon.png'
 if ($RequireIcon -and -not (Test-Path -LiteralPath $rootIcon -PathType Leaf)) {
-    Fail "Release validation requires the founder-owned icon at: $rootIcon"
+    Fail "Release validation requires the package icon at: $rootIcon"
 }
 if ($RequireIcon) {
     Assert-PngProperties ([IO.File]::ReadAllBytes($rootIcon)) 'Repository-root icon.png'

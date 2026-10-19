@@ -38,4 +38,4 @@ $releaseDate = (git show -s --format=%cs $releaseCommit).Trim()
 pwsh -NoProfile -File scripts/validate-release.ps1 -ExpectedVersion 0.1.0 -ExpectedPackageVersion 0.1.0 -ExpectedTag v0.1.0 -ExpectedCommit $releaseCommit -ExpectedReleaseDate $releaseDate -RequireIcon
 ```
 
-The contract test covers first and subsequent releases, candidate versus finalized state, date/version/tag mismatches, an absent tag in tag mode, tags pointing at another commit, and changes left under `Unreleased`. The release workflow remains tag-only, uses `-RequireTag`, and still requires the separate founder release authorization gates. No tag or publication is part of the package gate.
+The contract test covers first and subsequent releases, candidate versus finalized state, date/version/tag mismatches, an absent tag in tag mode, tags pointing at another commit, and changes left under `Unreleased`. The release workflow remains tag-only and uses `-RequireTag`. The package gate does not create tags or publish packages.

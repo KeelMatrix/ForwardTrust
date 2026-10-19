@@ -29,7 +29,7 @@ if ($ExpectedVersion -notmatch '^\d+\.\d+\.\d+$') {
 $rootIcon = Join-Path $root 'icon.png'
 $iconIncluded = Test-Path -LiteralPath $rootIcon -PathType Leaf
 if ($RequireIcon -and -not $iconIncluded) {
-    Fail "Release validation requires the founder-owned icon at: $rootIcon"
+    Fail "Release validation requires the package icon at: $rootIcon"
 }
 
 function Read-BigEndianUInt32([byte[]]$Bytes, [int]$Offset) {
