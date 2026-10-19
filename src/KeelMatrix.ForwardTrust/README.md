@@ -122,13 +122,15 @@ Assert.True(result.Succeeded, string.Join(" | ", result.Failures.Select(failure 
 
 Scenario input must contain at least one item and is limited by `ForwardTrustVerifierOptions.MaxScenarioCount` (32 by default, 256 maximum); lazy input is stopped at the first item over that limit. Each scenario accepts at most 64 headers, 64 KiB of aggregate UTF-8 header-name/value bytes, 256 characters per header name, and 16 KiB per value. Header names must use HTTP token characters, names that differ only by case are rejected, and values may contain horizontal tab, visible ASCII, or obs-text only. Violations return `MalformedScenario` before the request sender runs.
 
+Each individual scenario must also assert at least one supported forwarded dimension: `X-Forwarded-For`, `X-Forwarded-Proto`, or `X-Forwarded-Host` when its expected identity includes a host. Without one, verification returns `ForwardedValueNotProven` before the request sender runs. A host header is ignored when the expected identity does not assert a host; other asserted dimensions remain eligible.
+
 `ForwardedIdentity` copies its `IPAddress` on construction and when `ClientAddress` is read, so changes to an IPv6 scope ID through the input object or a returned address cannot change a stored expectation. For host probes, set `CounterfactualHost` in the `ForwardTrustScenario` object initializer when the verifier's default host is not accepted by the application's existing `AllowedHosts` policy. Choose a distinct ASCII host value that the policy already allows; use punycode for internationalized names. For example, an exact `public.example` allowlist can use `public.example:8443`. ForwardTrust does not broaden or change the host policy.
 
 ## Failure diagnostics
 
 `ForwardTrustResult.Failures` distinguishes trusted-header rejection, untrusted-header acceptance, scheme, host, client-address, forward-limit, malformed-scenario, timed-out host/probe, host setup, request-application-not-proven, and forwarded-value-not-proven failures. Duplicate scenario names, contradictory expectations, and case-insensitive duplicate header names are rejected before any request is sent.
 
-`RequestApplicationNotProven` means an asserted scenario omitted a valid scenario-local opposite-trust control or reused its primary peer. `ForwardedValueNotProven` means an accepted-side counterfactual did not produce its generated or caller-selected value, or an identical request produced an unstable observation. Neither outcome is a pass. The controls reject observable no-op, rewrite, replay, call-order, time, randomness, and state-drift behavior.
+`RequestApplicationNotProven` means an asserted scenario omitted a valid scenario-local opposite-trust control or reused its primary peer. `ForwardedValueNotProven` means no supported forwarded dimension was asserted, an accepted-side counterfactual did not produce its generated or caller-selected value, or an identical request produced an unstable observation. The no-dimension case fails before the sender runs. Neither outcome is a pass. The controls reject observable no-op, rewrite, replay, call-order, time, randomness, and state-drift behavior.
 
 ## What ForwardTrust proves
 

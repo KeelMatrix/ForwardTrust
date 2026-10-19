@@ -79,7 +79,7 @@ $icon = Join-Path $root 'icon.png'
 if (Test-Path $icon) {
     Write-Output "Icon path present: $icon"
 } else {
-    Write-Warning "Founder-owned icon is not present at required path: $icon"
+    Write-Warning "Optional package icon is not present: $icon"
 }
 Write-Output "Package gate passed. Hashes:"
 Get-FileHash $nupkg, $snupkg -Algorithm SHA256 | Format-Table -AutoSize

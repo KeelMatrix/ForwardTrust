@@ -18,6 +18,8 @@ Forwarded hop depth is the maximum comma-separated chain length in any asserted 
 
 The verifier requires at least one scenario, stops lazy scenario intake at the first item beyond `MaxScenarioCount`, and bounds each scenario to 64 headers, 64 KiB of aggregate UTF-8 header-name/value bytes, 256-character names, and 16 KiB values. Header names use HTTP token syntax, case-insensitive duplicate names are rejected rather than collapsed, and field values reject control characters other than horizontal tab and legal visible/obs-text characters. A violation is reported as `MalformedScenario` before any caller-provided sender invocation.
 
+Each scenario must also assert at least one supported forwarded dimension. `X-Forwarded-For` and `X-Forwarded-Proto` are active when present; `X-Forwarded-Host` is active only when the expected identity includes a host. A scenario without an active dimension returns `ForwardedValueNotProven` before the caller-provided sender runs. An unasserted host remains optional when another dimension is active.
+
 ## Test-host peer seam
 
 The supported seam is caller-owned: `TestServer.SendAsync(Action<HttpContext>, CancellationToken)` can assign `HttpContext.Connection.RemoteIpAddress` before the real pipeline runs. ForwardTrust exposes only a framework-neutral request/probe delegate, so consumers may use TestServer or their own test host without a runtime TestHost dependency.

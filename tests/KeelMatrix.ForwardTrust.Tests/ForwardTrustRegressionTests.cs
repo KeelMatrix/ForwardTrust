@@ -44,7 +44,7 @@ public sealed class ForwardTrustRegressionTests
     }
 
     [Fact]
-    public async Task ReviewersRejectedScenarioFalseSafeProbesFailClosed()
+    public async Task RejectedScenariosWithStaleOrDroppedHeadersFailClosed()
     {
         var headers = new Dictionary<string, string>
         {
@@ -148,7 +148,7 @@ public sealed class ForwardTrustRegressionTests
     }
 
     [Fact]
-    public async Task ReviewersDefaultCoincidenceProbesFailClosedWithNoOpSender()
+    public async Task DefaultCoincidenceProbesFailClosedWithNoOpSender()
     {
         var trusted = new ForwardTrustScenario(
             "trusted-default-coincidence",
@@ -838,8 +838,13 @@ public sealed class ForwardTrustRegressionTests
         var missing = new ForwardTrustScenario(
             "missing-forwarded-proto",
             TrustedProxy.ToString(),
-            new ForwardedIdentity("https", TrustedProxy),
-            ForwardTrustHeaderExpectation.Accepted);
+            new ForwardedIdentity("https", ExpectedClient),
+            ForwardTrustHeaderExpectation.Accepted,
+            new Dictionary<string, string>
+            {
+                ["X-Forwarded-For"] = ExpectedClient.ToString()
+            },
+            control: RejectedControl(UntrustedProxy));
         var malformed = new ForwardTrustScenario(
             "malformed-forwarded-for",
             TrustedProxy.ToString(),
@@ -907,7 +912,14 @@ public sealed class ForwardTrustRegressionTests
             "host-setup",
             TrustedProxy.ToString(),
             new ForwardedIdentity("http", TrustedProxy),
-            ForwardTrustHeaderExpectation.Rejected);
+            ForwardTrustHeaderExpectation.Rejected,
+            new Dictionary<string, string>
+            {
+                ["X-Forwarded-For"] = ExpectedClient.ToString()
+            },
+            control: new ForwardTrustControl(
+                UntrustedProxy.ToString(),
+                new ForwardedIdentity("http", UntrustedProxy)));
         var verifier = new ForwardTrustVerifier(new ForwardTrustVerifierOptions { RequestTimeout = TimeSpan.FromMilliseconds(100) });
         var nullResult = await verifier.VerifyAsync([scenario], static (_, _) => ValueTask.FromResult<ForwardedIdentity>(null!));
         var thrownResult = await verifier.VerifyAsync([scenario], static (_, _) => ValueTask.FromException<ForwardedIdentity>(new InvalidOperationException("setup")));

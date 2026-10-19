@@ -230,16 +230,6 @@ public sealed class ForwardTrustVerifier
             }
         }
 
-        if (scenario.HeaderExpectation == ForwardTrustHeaderExpectation.Accepted
-            && GetAssertedDimensions(scenario).Count == 0)
-        {
-            failures.Add(new ForwardTrustFailure(
-                scenario.Name,
-                ForwardTrustFailureKind.ForwardedValueNotProven,
-                ForwardTrustDimension.Headers,
-                "The accepted scenario did not assert a forwarded scheme, host, or client address, so header handling cannot be proven."));
-        }
-
         return new ForwardTrustScenarioResult(scenario.Name, failures.Count == 0, observedIdentity, failures);
     }
 
@@ -422,6 +412,15 @@ public sealed class ForwardTrustVerifier
         }
 
         var dimensions = GetAssertedDimensions(scenario);
+        if (dimensions.Count == 0)
+        {
+            failures.Add(new ForwardTrustFailure(
+                scenario.Name,
+                ForwardTrustFailureKind.ForwardedValueNotProven,
+                ForwardTrustDimension.Headers,
+                "The scenario does not assert a supported forwarded header, so trust behavior cannot be proven."));
+        }
+
         if (scenario.CounterfactualHost is not null)
         {
             if (!dimensions.Any(static dimension => dimension.Dimension == ForwardTrustDimension.Host))
