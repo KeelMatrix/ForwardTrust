@@ -89,6 +89,68 @@ function Replace-FixtureText(
     return (Convert-FixtureLineEndings $mutatedText $LineEnding)
 }
 
+function Get-FixtureCommit([string]$FixtureRoot) {
+    $commit = (git -C $FixtureRoot rev-parse HEAD).Trim()
+    if ($LASTEXITCODE -ne 0) { throw "Could not read Git fixture commit in '$FixtureRoot'." }
+    $releaseDate = (git -C $FixtureRoot show -s --format=%cs $commit).Trim()
+    if ($LASTEXITCODE -ne 0) { throw "Could not read Git fixture commit date in '$FixtureRoot'." }
+    return [pscustomobject]@{ Commit = $commit; Date = $releaseDate }
+}
+
+function Get-FixtureReleaseVersion([string]$Changelog) {
+    $match = [regex]::Match($Changelog, '(?m)^## \[(?<version>\d+\.\d+\.\d+)\] - \d{4}-\d{2}-\d{2}(?=\r?$)')
+    if (-not $match.Success) { throw 'Release fixture has no finalized changelog heading.' }
+    return $match.Groups['version'].Value
+}
+
+function Set-FixtureReleaseDate([string]$FixtureRoot, [string]$Version, [string]$ReleaseDate) {
+    $changelogPath = Join-Path $FixtureRoot 'CHANGELOG.md'
+    $changelog = [System.IO.File]::ReadAllText($changelogPath)
+    $escapedVersion = [regex]::Escape($Version)
+    $pattern = "(?m)^(## \[$escapedVersion\] - )\d{4}-\d{2}-\d{2}(?=\r?$)"
+    $matches = [regex]::Matches($changelog, $pattern)
+    if ($matches.Count -eq 0) { throw "Release fixture has no finalized heading for version '$Version'." }
+    $updated = [regex]::Replace($changelog, $pattern, [System.Text.RegularExpressions.MatchEvaluator]{
+        param($match)
+        return $match.Groups[1].Value + $ReleaseDate
+    })
+    if ($updated -ceq $changelog) { return $false }
+    [System.IO.File]::WriteAllText($changelogPath, $updated, [System.Text.UTF8Encoding]::new($false))
+    return $true
+}
+
+function Amend-FixtureCommit([string]$FixtureRoot) {
+    & git -C $FixtureRoot add CHANGELOG.md
+    if ($LASTEXITCODE -ne 0) { throw "Could not stage changelog fixture in '$FixtureRoot'." }
+    & git -C $FixtureRoot -c user.name='ForwardTrust Fixture' -c user.email='fixture@example.invalid' commit --quiet --amend --no-edit
+    if ($LASTEXITCODE -ne 0) { throw "Could not amend changelog fixture in '$FixtureRoot'." }
+}
+
+function Sync-FixtureReleaseDate([string]$FixtureRoot) {
+    $changelog = [System.IO.File]::ReadAllText((Join-Path $FixtureRoot 'CHANGELOG.md'))
+    $version = Get-FixtureReleaseVersion $changelog
+    $escapedVersion = [regex]::Escape($version)
+    $pattern = "(?m)^## \[$escapedVersion\] - (?<date>\d{4}-\d{2}-\d{2})(?=\r?$)"
+
+    for ($attempt = 0; $attempt -lt 3; $attempt++) {
+        $commit = Get-FixtureCommit $FixtureRoot
+        $changelog = [System.IO.File]::ReadAllText((Join-Path $FixtureRoot 'CHANGELOG.md'))
+        $headings = [regex]::Matches($changelog, $pattern)
+        if ($headings.Count -eq 0) { throw "Release fixture has no finalized heading for version '$version'." }
+        $datesMatch = $true
+        foreach ($heading in $headings) {
+            if ($heading.Groups['date'].Value -cne $commit.Date) { $datesMatch = $false; break }
+        }
+        if ($datesMatch) {
+            return [pscustomobject]@{ Commit = $commit.Commit; Date = $commit.Date; Version = $version }
+        }
+        [void](Set-FixtureReleaseDate $FixtureRoot $version $commit.Date)
+        Amend-FixtureCommit $FixtureRoot
+    }
+
+    throw "Release fixture '$FixtureRoot' did not stabilize its changelog date against its commit date."
+}
+
 function New-ReleaseFixture(
     [string]$Name,
     [string]$PackageVersion,
@@ -100,55 +162,33 @@ function New-ReleaseFixture(
     & git -C $fixtureRoot init --quiet
     if ($LASTEXITCODE -ne 0) { throw "Could not initialize Git fixture '$Name'." }
 
-    $previousAuthorDate = $env:GIT_AUTHOR_DATE
-    $previousCommitterDate = $env:GIT_COMMITTER_DATE
-    try {
-        $env:GIT_AUTHOR_DATE = '2026-10-18T12:00:00+00:00'
-        $env:GIT_COMMITTER_DATE = '2026-10-18T12:00:00+00:00'
-        & git -C $fixtureRoot add Directory.Build.props CHANGELOG.md
-        if ($LASTEXITCODE -ne 0) { throw "Could not stage Git fixture '$Name'." }
-        & git -C $fixtureRoot -c user.name='ForwardTrust Fixture' -c user.email='fixture@example.invalid' commit --quiet -m 'release fixture'
-        if ($LASTEXITCODE -ne 0) { throw "Could not commit Git fixture '$Name'." }
-    }
-    finally {
-        if ($null -eq $previousAuthorDate) { Remove-Item Env:GIT_AUTHOR_DATE -ErrorAction SilentlyContinue } else { $env:GIT_AUTHOR_DATE = $previousAuthorDate }
-        if ($null -eq $previousCommitterDate) { Remove-Item Env:GIT_COMMITTER_DATE -ErrorAction SilentlyContinue } else { $env:GIT_COMMITTER_DATE = $previousCommitterDate }
-    }
+    & git -C $fixtureRoot add Directory.Build.props CHANGELOG.md
+    if ($LASTEXITCODE -ne 0) { throw "Could not stage Git fixture '$Name'." }
+    & git -C $fixtureRoot -c user.name='ForwardTrust Fixture' -c user.email='fixture@example.invalid' commit --quiet -m 'release fixture'
+    if ($LASTEXITCODE -ne 0) { throw "Could not commit Git fixture '$Name'." }
 
-    $commit = (git -C $fixtureRoot rev-parse HEAD).Trim()
-    if ($LASTEXITCODE -ne 0) { throw "Could not read Git fixture '$Name' commit." }
-    $releaseDate = (git -C $fixtureRoot show -s --format=%cs $commit).Trim()
-    if ($LASTEXITCODE -ne 0) { throw "Could not read Git fixture '$Name' commit date." }
+    $fixtureCommit = Sync-FixtureReleaseDate $fixtureRoot
     if ($AddTag) {
-        & git -C $fixtureRoot tag $Tag $commit
+        & git -C $fixtureRoot tag $Tag $fixtureCommit.Commit
         if ($LASTEXITCODE -ne 0) { throw "Could not create Git fixture '$Name' tag." }
     }
 
     return [pscustomobject]@{
         Root = $fixtureRoot
-        Commit = $commit
-        Date = $releaseDate
+        Commit = $fixtureCommit.Commit
+        Date = $fixtureCommit.Date
     }
 }
 
 function Add-SecondCommit([pscustomobject]$Fixture) {
     Set-Content -LiteralPath (Join-Path $Fixture.Root 'fixture.txt') -Value 'second commit' -Encoding utf8
-    $previousAuthorDate = $env:GIT_AUTHOR_DATE
-    $previousCommitterDate = $env:GIT_COMMITTER_DATE
-    try {
-        $env:GIT_AUTHOR_DATE = '2026-10-18T12:00:00+00:00'
-        $env:GIT_COMMITTER_DATE = '2026-10-18T12:00:00+00:00'
-        & git -C $Fixture.Root add fixture.txt
-        if ($LASTEXITCODE -ne 0) { throw 'Could not stage the second commit fixture.' }
-        & git -C $Fixture.Root -c user.name='ForwardTrust Fixture' -c user.email='fixture@example.invalid' commit --quiet -m 'second fixture commit'
-        if ($LASTEXITCODE -ne 0) { throw 'Could not create the second commit fixture.' }
-    }
-    finally {
-        if ($null -eq $previousAuthorDate) { Remove-Item Env:GIT_AUTHOR_DATE -ErrorAction SilentlyContinue } else { $env:GIT_AUTHOR_DATE = $previousAuthorDate }
-        if ($null -eq $previousCommitterDate) { Remove-Item Env:GIT_COMMITTER_DATE -ErrorAction SilentlyContinue } else { $env:GIT_COMMITTER_DATE = $previousCommitterDate }
-    }
-    $Fixture.Commit = (git -C $Fixture.Root rev-parse HEAD).Trim()
-    $Fixture.Date = (git -C $Fixture.Root show -s --format=%cs $Fixture.Commit).Trim()
+    & git -C $Fixture.Root add fixture.txt
+    if ($LASTEXITCODE -ne 0) { throw 'Could not stage the second commit fixture.' }
+    & git -C $Fixture.Root -c user.name='ForwardTrust Fixture' -c user.email='fixture@example.invalid' commit --quiet -m 'second fixture commit'
+    if ($LASTEXITCODE -ne 0) { throw 'Could not create the second commit fixture.' }
+    $fixtureCommit = Sync-FixtureReleaseDate $Fixture.Root
+    $Fixture.Commit = $fixtureCommit.Commit
+    $Fixture.Date = $fixtureCommit.Date
 }
 
 try {
@@ -314,8 +354,32 @@ try {
     $untagged = New-ReleaseFixture 'untagged-release' '0.1.0' $firstReleaseText
     Invoke-ReleaseContract $untagged.Root '0.1.0' '0.1.0' 'v0.1.0' $untagged.Commit $untagged.Date $true $false 'tag mode rejects an untagged finalization candidate'
 
-    $wrongDateText = Replace-FixtureText $firstReleaseText '2026-10-18' '2026-10-17' 'wrong release date'
-    $wrongDate = New-ReleaseFixture 'wrong-date-release' '0.1.0' $wrongDateText
+    $wrongDate = New-ReleaseFixture 'wrong-date-release' '0.1.0' $firstReleaseText
+    $wrongChangelogDate = ([datetime]::ParseExact(
+        $wrongDate.Date,
+        'yyyy-MM-dd',
+        [Globalization.CultureInfo]::InvariantCulture
+    )).AddDays(-1).ToString('yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
+    if (-not (Set-FixtureReleaseDate $wrongDate.Root '0.1.0' $wrongChangelogDate)) {
+        throw 'Wrong-date fixture mutation did not change the changelog date.'
+    }
+    Amend-FixtureCommit $wrongDate.Root
+    $wrongDateCommit = Get-FixtureCommit $wrongDate.Root
+    if ($wrongDateCommit.Date -ceq $wrongChangelogDate) {
+        $wrongChangelogDate = ([datetime]::ParseExact(
+            $wrongDateCommit.Date,
+            'yyyy-MM-dd',
+            [Globalization.CultureInfo]::InvariantCulture
+        )).AddDays(-1).ToString('yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
+        if (-not (Set-FixtureReleaseDate $wrongDate.Root '0.1.0' $wrongChangelogDate)) {
+            throw 'Wrong-date fixture retry did not change the changelog date.'
+        }
+        Amend-FixtureCommit $wrongDate.Root
+        $wrongDateCommit = Get-FixtureCommit $wrongDate.Root
+    }
+    if ($wrongDateCommit.Date -ceq $wrongChangelogDate) { throw 'Wrong-date fixture unexpectedly matches its amended commit date.' }
+    $wrongDate.Commit = $wrongDateCommit.Commit
+    $wrongDate.Date = $wrongDateCommit.Date
     Invoke-ReleaseContract $wrongDate.Root '0.1.0' '0.1.0' 'v0.1.0' $wrongDate.Commit $wrongDate.Date $false $false 'changelog date must match exact commit date'
 
     $wrongPackage = New-ReleaseFixture 'wrong-package-version' '0.2.0' $firstReleaseText
