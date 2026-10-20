@@ -1,0 +1,38 @@
+﻿namespace KeelMatrix.ForwardTrust;
+
+/// <summary>Classifies a failed trust assertion without exposing request contents.</summary>
+public enum ForwardTrustFailureKind
+{
+    /// <summary>Forwarded values expected from a trusted proxy were not applied.</summary>
+    TrustedHeaderRejected,
+
+    /// <summary>Forwarded values from an untrusted proxy were applied.</summary>
+    UntrustedHeaderAccepted,
+
+    /// <summary>The effective scheme differed from the expectation.</summary>
+    SchemeMismatch,
+
+    /// <summary>The effective host differed from an explicitly asserted expectation.</summary>
+    HostMismatch,
+
+    /// <summary>The effective client address differed from the expectation.</summary>
+    ClientAddressMismatch,
+
+    /// <summary>A failed asserted forwarded dimension did not apply its multi-hop chain as expected.</summary>
+    ForwardLimitMismatch,
+
+    /// <summary>The scenario was invalid and no request was sent.</summary>
+    MalformedScenario,
+
+    /// <summary>The caller-provided host or probe exceeded the finite request timeout.</summary>
+    HostProbeFailure,
+
+    /// <summary>The caller-provided host or probe failed before it returned an identity.</summary>
+    HostSetupFailure,
+
+    /// <summary>The scenario did not provide a load-bearing, scenario-local opposite-trust control.</summary>
+    RequestApplicationNotProven,
+
+    /// <summary>No supported forwarded dimension was asserted, a counterfactual did not produce its expected value, or an identical request was not repeatable.</summary>
+    ForwardedValueNotProven
+}
