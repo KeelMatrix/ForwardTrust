@@ -24,6 +24,10 @@ The verifier requires at least one scenario, stops lazy scenario intake at the f
 
 Each scenario must also assert at least one supported forwarded dimension. `X-Forwarded-For` and `X-Forwarded-Proto` are active when present; `X-Forwarded-Host` is active only when the expected identity includes a host. A scenario without an active dimension returns `ForwardedValueNotProven` before the caller-provided sender runs. An unasserted host remains optional when another dimension is active.
 
+When the primary expectation is `Rejected` and host is asserted, the accepted control must declare the expected host for the original forwarded value. If it does not, validation returns `RequestApplicationNotProven` before any sender call; a default or custom counterfactual cannot supply that missing original-host proof. If the application rejects the original host through its host policy, the accepted control fails its expected-host assertion even when the counterfactual host is allowed.
+
+`ForwardTrustResult.Scenarios`, aggregate failures, and per-scenario failures are read-only defensive snapshots. A caller cannot mutate a returned collection to make aggregate and per-scenario verdicts disagree.
+
 ## Test-host peer seam
 
 The supported seam is caller-owned: `TestServer.SendAsync(Action<HttpContext>, CancellationToken)` can assign `HttpContext.Connection.RemoteIpAddress` before the real pipeline runs. ForwardTrust exposes only a framework-neutral request/probe delegate, so consumers may use TestServer or their own test host without a runtime TestHost dependency.

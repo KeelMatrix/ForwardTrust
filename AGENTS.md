@@ -2,7 +2,7 @@
 
 ## Navigation
 
-- `src/KeelMatrix.ForwardTrust` contains the shipping verifier and immutable scenario/result contracts.
+- `src/KeelMatrix.ForwardTrust` contains the shipping verifier and immutable scenario/result contracts. Public scenario and failure collections are read-only defensive snapshots.
 - `tests/KeelMatrix.ForwardTrust.Tests` contains unit, ASP.NET Core TestServer, security/redaction, cancellation, and API-surface tests.
 - `smoke/ForwardTrust.Consumer` is a non-packable PackageReference consumer used against the built package.
 - `docs/compatibility.md` records the supported net8.0 servicing facts and peer-simulation seam.

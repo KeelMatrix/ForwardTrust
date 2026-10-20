@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot),
     [switch]$SelfTest
@@ -36,13 +36,7 @@ Assert-LaunchSettingsIgnored $RepositoryRoot
 Write-Output 'PASS: nested test, shipping, and smoke launch settings paths are ignored.'
 
 if ($SelfTest) {
-    $scratchParent = if ($env:PAPERCLIP_TASK_SCRATCH_DIR) {
-        $env:PAPERCLIP_TASK_SCRATCH_DIR
-    } elseif ($env:PAPERCLIP_RUN_SCRATCH_DIR) {
-        $env:PAPERCLIP_RUN_SCRATCH_DIR
-    } else {
-        [IO.Path]::GetTempPath()
-    }
+    $scratchParent = [IO.Path]::GetTempPath()
     $scratchParent = [IO.Path]::GetFullPath($scratchParent)
     $negativeRoot = Join-Path $scratchParent ('ForwardTrust-IdeIgnore-' + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $negativeRoot -Force | Out-Null

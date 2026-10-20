@@ -12,7 +12,7 @@ public sealed class ForwardTrustScenarioResult
         ScenarioName = scenarioName;
         Succeeded = succeeded;
         ObservedIdentity = observedIdentity;
-        Failures = failures;
+        Failures = Array.AsReadOnly(failures.ToArray());
     }
 
     /// <summary>Gets the scenario name.</summary>
@@ -24,6 +24,6 @@ public sealed class ForwardTrustScenarioResult
     /// <summary>Gets the probe identity, or <see langword="null"/> when the host failed.</summary>
     public ForwardedIdentity? ObservedIdentity { get; }
 
-    /// <summary>Gets structured failures for the scenario.</summary>
+    /// <summary>Gets a read-only snapshot of structured failures for the scenario.</summary>
     public IReadOnlyList<ForwardTrustFailure> Failures { get; }
 }

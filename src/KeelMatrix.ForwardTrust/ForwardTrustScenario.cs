@@ -17,7 +17,7 @@ public sealed class ForwardTrustScenario
     /// <param name="headerExpectation">Whether the primary peer should accept or reject forwarded values.</param>
     /// <param name="headers">The request headers to apply.</param>
     /// <param name="path">The application probe path.</param>
-    /// <param name="control">The opposite-trust peer and expected identity required when a forwarded dimension is asserted.</param>
+    /// <param name="control">The opposite-trust peer and expected identity required when a forwarded dimension is asserted. Its expected host must be present when it is the accepted side of an asserted forwarded-host scenario.</param>
     public ForwardTrustScenario(
         string name,
         string immediatePeerAddress,
@@ -53,7 +53,7 @@ public sealed class ForwardTrustScenario
     /// <summary>Gets whether the scenario expects forwarded values to be applied or rejected.</summary>
     public ForwardTrustHeaderExpectation HeaderExpectation { get; }
 
-    /// <summary>Gets the scenario-local opposite-trust control, or <see langword="null"/> when no forwarded dimension is asserted.</summary>
+    /// <summary>Gets the scenario-local opposite-trust control, or <see langword="null"/> when no forwarded dimension is asserted. Its expected host must be present when the control is the accepted side of an asserted forwarded-host scenario.</summary>
     public ForwardTrustControl? Control { get; }
 
     /// <summary>Gets or initializes the caller-supplied ASCII alternate forwarded host used for a host counterfactual, or <see langword="null"/> to use the verifier default. Use punycode for internationalized names.</summary>

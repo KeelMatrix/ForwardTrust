@@ -421,6 +421,20 @@ public sealed class ForwardTrustVerifier
                 "The scenario does not assert a supported forwarded header, so trust behavior cannot be proven."));
         }
 
+        var acceptedExpectedIdentity = scenario.HeaderExpectation == ForwardTrustHeaderExpectation.Accepted
+            ? scenario.ExpectedIdentity
+            : scenario.Control?.ExpectedIdentity;
+        if (dimensions.Any(static dimension => dimension.Dimension == ForwardTrustDimension.Host)
+            && scenario.Control is not null
+            && acceptedExpectedIdentity?.Host is null)
+        {
+            failures.Add(new ForwardTrustFailure(
+                scenario.Name,
+                ForwardTrustFailureKind.RequestApplicationNotProven,
+                ForwardTrustDimension.Host,
+                "The accepted request path must declare the expected host for the original forwarded-host value before a counterfactual can prove host handling."));
+        }
+
         if (scenario.CounterfactualHost is not null)
         {
             if (!dimensions.Any(static dimension => dimension.Dimension == ForwardTrustDimension.Host))
@@ -429,11 +443,8 @@ public sealed class ForwardTrustVerifier
             }
             else
             {
-                var acceptedExpectedIdentity = scenario.HeaderExpectation == ForwardTrustHeaderExpectation.Accepted
-                    ? scenario.ExpectedIdentity
-                    : scenario.Control?.ExpectedIdentity;
-                if (acceptedExpectedIdentity?.Host is null
-                    || string.Equals(scenario.CounterfactualHost, acceptedExpectedIdentity.Host, StringComparison.OrdinalIgnoreCase))
+                if (acceptedExpectedIdentity?.Host is not null
+                    && string.Equals(scenario.CounterfactualHost, acceptedExpectedIdentity.Host, StringComparison.OrdinalIgnoreCase))
                 {
                     failures.Add(Malformed(scenario, "A counterfactual host must differ from the accepted-side expected host."));
                 }

@@ -5,7 +5,7 @@ public sealed class ForwardTrustControl
 {
     /// <summary>Creates an opposite-trust control for the scenario's declared headers.</summary>
     /// <param name="immediatePeerAddress">The simulated peer expected to produce the opposite header-handling outcome.</param>
-    /// <param name="expectedIdentity">The identity expected when the same headers are sent through that peer.</param>
+    /// <param name="expectedIdentity">The identity expected when the same headers are sent through that peer, including the original forwarded host when this is the accepted control for an asserted host scenario.</param>
     public ForwardTrustControl(string immediatePeerAddress, ForwardedIdentity expectedIdentity)
     {
         ImmediatePeerAddress = immediatePeerAddress ?? string.Empty;
