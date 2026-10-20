@@ -863,6 +863,31 @@ public sealed class ForwardTrustVerifierTests
         Assert.Equal(TimeSpan.FromSeconds(5), options.RequestTimeout);
     }
 
+    [Theory]
+    [InlineData(1L)]
+    [InlineData(1_200_000_000L)]
+    public void RequestTimeoutAcceptsPositiveValuesThroughTwoMinutes(long ticks)
+    {
+        var verifier = new ForwardTrustVerifier(new ForwardTrustVerifierOptions
+        {
+            RequestTimeout = TimeSpan.FromTicks(ticks)
+        });
+
+        Assert.NotNull(verifier);
+    }
+
+    [Theory]
+    [InlineData(0L)]
+    [InlineData(-1L)]
+    [InlineData(1_200_000_001L)]
+    public void RequestTimeoutRejectsZeroNegativeAndOverTwoMinutes(long ticks)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ForwardTrustVerifier(new ForwardTrustVerifierOptions
+        {
+            RequestTimeout = TimeSpan.FromTicks(ticks)
+        }));
+    }
+
     private static ForwardTrustScenario Scenario(
         string name,
         IPAddress peer,
