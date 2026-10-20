@@ -121,10 +121,13 @@ public sealed class ForwardTrustVerifier
                 failures.AddRange(CompareIdentity(controlRequest, controlAttempt.Identity!));
                 foreach (var dimension in dimensions)
                 {
-                    var acceptedObservation = scenario.HeaderExpectation == ForwardTrustHeaderExpectation.Accepted
-                        ? observedIdentity
-                        : controlAttempt.Identity!;
-                    var counterfactualValue = CounterfactualValue(dimension.HeaderName, acceptedObservation, scenario);
+                    var acceptedExpectedIdentity = scenario.HeaderExpectation == ForwardTrustHeaderExpectation.Accepted
+                        ? scenario.ExpectedIdentity
+                        : scenario.Control!.ExpectedIdentity;
+                    var counterfactualValue = CounterfactualValue(
+                        dimension.HeaderName,
+                        acceptedExpectedIdentity,
+                        scenario);
                     var primaryCounterfactualRequest = CreateCounterfactualRequest(
                         primaryRequest,
                         dimension.HeaderName,
@@ -476,6 +479,11 @@ public sealed class ForwardTrustVerifier
             }
         }
 
+        if (failures.Count == 0)
+        {
+            ValidateGeneratedCounterfactualRequests(scenario, failures);
+        }
+
         return failures;
     }
 
@@ -554,6 +562,50 @@ public sealed class ForwardTrustVerifier
         return dimensions;
     }
 
+    private static void ValidateGeneratedCounterfactualRequests(
+        ForwardTrustScenario scenario,
+        List<ForwardTrustFailure> failures)
+    {
+        var dimensions = GetAssertedDimensions(scenario);
+        if (dimensions.Count == 0)
+        {
+            return;
+        }
+
+        var acceptedExpectedIdentity = scenario.HeaderExpectation == ForwardTrustHeaderExpectation.Accepted
+            ? scenario.ExpectedIdentity
+            : scenario.Control!.ExpectedIdentity;
+        var requests = new[]
+        {
+            CreatePrimaryRequest(scenario),
+            CreateControlRequest(scenario)
+        };
+        foreach (var dimension in dimensions)
+        {
+            var counterfactualValue = CounterfactualValue(
+                dimension.HeaderName,
+                acceptedExpectedIdentity,
+                scenario);
+            foreach (var request in requests)
+            {
+                var generatedRequest = CreateCounterfactualRequest(
+                    request,
+                    dimension.HeaderName,
+                    counterfactualValue);
+                _ = ForwardTrustScenario.CopyHeadersBounded(
+                    generatedRequest.Headers,
+                    out var limitsExceeded,
+                    out var duplicateHeaderNames);
+                if (limitsExceeded || duplicateHeaderNames)
+                {
+                    failures.Add(Malformed(
+                        scenario,
+                        "A generated counterfactual request exceeds the bounded header count, value, or aggregate-size limits."));
+                    return;
+                }
+            }
+        }
+    }
     private static RequestSpec CreatePrimaryRequest(ForwardTrustScenario scenario)
     {
         return new RequestSpec(
@@ -597,12 +649,12 @@ public sealed class ForwardTrustVerifier
 
     private static string CounterfactualValue(
         string headerName,
-        ForwardedIdentity acceptedObservation,
+        ForwardedIdentity acceptedExpectedIdentity,
         ForwardTrustScenario scenario)
     {
         if (headerName.Equals("X-Forwarded-Proto", StringComparison.OrdinalIgnoreCase))
         {
-            return acceptedObservation.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase) ? "http" : "https";
+            return acceptedExpectedIdentity.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase) ? "http" : "https";
         }
 
         if (headerName.Equals("X-Forwarded-Host", StringComparison.OrdinalIgnoreCase))
@@ -612,17 +664,16 @@ public sealed class ForwardTrustVerifier
                 return scenario.CounterfactualHost;
             }
 
-            return string.Equals(acceptedObservation.Host, "counterfactual.example", StringComparison.OrdinalIgnoreCase)
+            return string.Equals(acceptedExpectedIdentity.Host, "counterfactual.example", StringComparison.OrdinalIgnoreCase)
                 ? "alternate-counterfactual.example"
                 : "counterfactual.example";
         }
 
         var first = IPAddress.Parse("203.0.113.254");
-        return AddressesEqual(acceptedObservation.ClientAddress, first)
+        return AddressesEqual(acceptedExpectedIdentity.ClientAddress, first)
             ? "198.51.100.254"
             : first.ToString();
     }
-
     private static bool SameDimension(ForwardTrustDimension dimension, ForwardedIdentity left, ForwardedIdentity right)
     {
         return dimension switch

@@ -96,7 +96,7 @@ public sealed class ForwardTrustQuickStartTests
 }
 ```
 
-For an untrusted peer, use `ForwardTrustHeaderExpectation.Rejected`, expect the identity exposed when forwarded values are ignored, and set `control` to a trusted peer plus the identity those same headers must produce. An accepted scenario uses an untrusted control peer and its ignored-header identity. For every asserted dimension, the verifier sends original and counterfactual requests through both peers, then reissues each identical request. A pass requires the accepted counterfactual to match the exact generated value (or the caller-selected host value) while preserving every non-target identity field; the rejected path must preserve its full identity.
+For an untrusted peer, use `ForwardTrustHeaderExpectation.Rejected`, expect the identity exposed when forwarded values are ignored, and set `control` to a trusted peer plus the identity those same headers must produce. An accepted scenario uses an untrusted control peer and its ignored-header identity. The verifier checks every generated counterfactual against the same header limits before sending any request. For every asserted dimension, it then sends original and counterfactual requests through both peers and reissues each identical request. A pass requires the accepted counterfactual to match the exact generated value (or the caller-selected host value) while preserving every non-target identity field; the rejected path must preserve its full identity.
 
 For a two-hop boundary, set the application pipeline's `ForwardLimit` to `2` and keep the chain aligned across the asserted forwarded dimensions:
 
@@ -120,7 +120,7 @@ var result = await new ForwardTrustVerifier().VerifyAsync([twoHop], sender);
 Assert.True(result.Succeeded, string.Join(" | ", result.Failures.Select(failure => failure.Message)));
 ```
 
-Scenario input must contain at least one item and is limited by `ForwardTrustVerifierOptions.MaxScenarioCount` (32 by default, 256 maximum); lazy input is stopped at the first item over that limit. Each scenario accepts at most 64 headers, 64 KiB of aggregate UTF-8 header-name/value bytes, 256 characters per header name, and 16 KiB per value. Header names must use HTTP token characters, names that differ only by case are rejected, and values may contain horizontal tab, visible ASCII, or obs-text only. Violations return `MalformedScenario` before the request sender runs.
+Scenario input must contain at least one item and is limited by `ForwardTrustVerifierOptions.MaxScenarioCount` (32 by default, 256 maximum); lazy input is stopped at the first item over that limit. Each scenario accepts at most 64 headers, 64 KiB of aggregate UTF-8 header-name/value bytes, 256 characters per header name, and 16 KiB per value. Header names must use HTTP token characters, names that differ only by case are rejected, and values may contain horizontal tab, visible ASCII, or obs-text only. Generated counterfactual values are checked against the same per-value and aggregate UTF-8 limits before any request sender runs. Violations return `MalformedScenario` before the sender runs.
 
 Each individual scenario must also assert at least one supported forwarded dimension: `X-Forwarded-For`, `X-Forwarded-Proto`, or `X-Forwarded-Host` when its expected identity includes a host. Without one, verification returns `ForwardedValueNotProven` before the request sender runs. A host header is ignored when the expected identity does not assert a host; other asserted dimensions remain eligible.
 

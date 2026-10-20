@@ -10,7 +10,9 @@ public sealed class ForwardTrustScenario
     internal const int MaxHeaderValueLength = 16 * 1024;
     internal const int MaxAggregateHeaderBytes = 64 * 1024;
 
-    /// <summary>Creates a scenario. Address, control, header syntax, counterfactual-host syntax, and case-insensitive header-name uniqueness are checked before any request is sent.</summary>
+    /// <summary>
+    /// Creates a scenario. Address, control, header syntax, counterfactual-host syntax, case-insensitive header-name uniqueness, and generated counterfactual header bounds are checked before any request is sent.
+    /// </summary>
     /// <param name="name">The stable scenario name used in diagnostics.</param>
     /// <param name="immediatePeerAddress">The simulated peer address for the primary request.</param>
     /// <param name="expectedIdentity">The expected identity for the primary request.</param>
