@@ -36,6 +36,6 @@ jobs:
       - name: Scan repository child PowerShell launches
         shell: pwsh
         run: ./build/Test-NestedPwshLaunch.ps1
-      - name: Run package gate
+      - name: Run package and repository hygiene gates
         shell: pwsh
         run: ./scripts/package-gate.ps1

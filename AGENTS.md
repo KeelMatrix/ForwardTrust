@@ -25,6 +25,7 @@ pwsh -NoProfile -File scripts/package-gate.ps1
 - The only shipping package is `KeelMatrix.ForwardTrust`, targeting `net8.0`.
 - Verification is read-only with respect to the caller's application configuration; it never rewrites `ForwardedHeadersOptions`.
 - Scenario validation is complete before any request executes.
+- Each `ForwardTrustRequest` snapshots its immediate-peer address and returns a defensive copy, so sender mutations cannot change later probe inputs.
 - No external network, DNS, cloud metadata, or telemetry call is part of v1.
 - Diagnostics never include cookies, bearer tokens, arbitrary response bodies, or unrelated headers.
 - `ForwardLimitMismatch` requires a failed asserted dimension whose own forwarded-header chain contains multiple values.

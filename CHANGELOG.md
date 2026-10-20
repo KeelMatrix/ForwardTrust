@@ -16,3 +16,4 @@ All notable changes to KeelMatrix.ForwardTrust are documented here.
 
 - Scenarios without an asserted forwarded dimension now fail before the request sender runs, for both accepted and rejected expectations.
 - `ForwardLimitMismatch` now requires the failed asserted dimension itself to contain multiple forwarded values; unrelated identity failures and unasserted host chains no longer produce the diagnostic.
+- Request senders receive an isolated immediate-peer address on every `ForwardTrustRequest` read, so mutating an IPv6 scope ID cannot change later original, counterfactual, or replay inputs.

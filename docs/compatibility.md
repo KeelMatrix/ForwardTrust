@@ -14,6 +14,8 @@ Each scenario with an asserted forwarded dimension declares its own opposite-tru
 
 `ForwardedIdentity` copies its `IPAddress` at construction and when `ClientAddress` is read. Mutating an input or returned IPv6 address therefore cannot change the expected identity stored by a scenario.
 
+`ForwardTrustRequest` snapshots its simulated immediate-peer address and returns a defensive copy from `ImmediatePeerAddress` on every read. Sender code therefore cannot mutate the verifier's address state between original, counterfactual, and replay probes, including by changing an IPv6 scope ID.
+
 Forwarded hop depth is the maximum comma-separated chain length in any asserted forwarded dimension, not the sum across `X-Forwarded-For`, `X-Forwarded-Proto`, and `X-Forwarded-Host`. For example, a two-hop scenario can use `X-Forwarded-For: 198.51.100.10, 10.0.0.10`, `X-Forwarded-Proto: https, http`, and `X-Forwarded-Host: public.example, internal.example` with the application's `ForwardLimit` set to `2`; a one-hop request with one value in each field is not treated as a three-hop request.
 
 The verifier reports `ForwardLimitMismatch` only when a failed asserted dimension has more than one value in its own forwarded-header chain. A mismatch on a different dimension, or a multi-hop `X-Forwarded-Host` header without an asserted host, does not produce this diagnostic.

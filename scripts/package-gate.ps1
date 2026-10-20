@@ -9,6 +9,9 @@ $launchGuard = Join-Path $root 'build/Test-NestedPwshLaunch.ps1'
 if ($LASTEXITCODE -ne 0) { throw 'Nested PowerShell launch guard self-test failed.' }
 & $launchGuard
 if ($LASTEXITCODE -ne 0) { throw 'Nested PowerShell launch guard failed.' }
+$ideIgnoreGuard = Join-Path $root 'scripts/Test-IdeGeneratedFilesIgnore.ps1'
+Invoke-NestedPwsh -NoProfile -File $ideIgnoreGuard -RepositoryRoot $root -SelfTest
+if ($LASTEXITCODE -ne 0) { throw 'Generated IDE file ignore guard failed.' }
 Set-Location $root
 $artifactRoot = Join-Path $root 'artifacts'
 $packages = Join-Path $artifactRoot 'packages'

@@ -25,6 +25,8 @@ The package consumer intentionally uses `PackageReference`, not `ProjectReferenc
 
 The package gate also extracts the packed README Quick start code and compiles it in a fresh isolated `PackageReference` consumer, so the published example is checked as shipped.
 
+The package gate checks that nested test, shipping, and smoke-project `Properties/launchSettings.json` files are ignored. Its self-test also removes the rule in an isolated temporary repository and confirms the guard fails closed.
+
 The vulnerability audit has no build/test-only exception path: any package advisory in the JSON report fails the gate. The repeat-pack check compares normalized `.nupkg` and `.snupkg` hashes from the same Release inputs.
 
 ## Release preparation
