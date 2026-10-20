@@ -344,18 +344,18 @@ public sealed class ForwardTrustVerifierTests
     public static IEnumerable<object[]> ForwardLimitDiagnosticCases()
     {
         foreach (var headerName in new[] { "X-Forwarded-For", "X-Forwarded-Proto", "X-Forwarded-Host" })
-        foreach (var hopCount in new[] { 1, 2, 3 })
-        foreach (var assertHost in new[] { false, true })
-        foreach (var expectation in new[] { ForwardTrustHeaderExpectation.Accepted, ForwardTrustHeaderExpectation.Rejected })
-        foreach (var failAssertedDimension in new[] { false, true })
-        {
-            if (headerName == "X-Forwarded-Host" && !assertHost && failAssertedDimension)
-            {
-                continue;
-            }
+            foreach (var hopCount in new[] { 1, 2, 3 })
+                foreach (var assertHost in new[] { false, true })
+                    foreach (var expectation in new[] { ForwardTrustHeaderExpectation.Accepted, ForwardTrustHeaderExpectation.Rejected })
+                        foreach (var failAssertedDimension in new[] { false, true })
+                        {
+                            if (headerName == "X-Forwarded-Host" && !assertHost && failAssertedDimension)
+                            {
+                                continue;
+                            }
 
-            yield return [headerName, hopCount, assertHost, expectation, failAssertedDimension];
-        }
+                            yield return [headerName, hopCount, assertHost, expectation, failAssertedDimension];
+                        }
     }
 
     private static string ForwardedHeaderChain(string headerName, int hopCount)
