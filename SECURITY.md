@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Please do not open a public issue for a suspected vulnerability. Use GitHub's private vulnerability reporting for the [KeelMatrix/ForwardTrust repository](https://github.com/KeelMatrix/ForwardTrust/security/advisories/new) when available. Include the affected version, a minimal synthetic reproduction, expected and observed behavior, and impact. Do not include production headers, credentials, cookies, or customer data.
+Please do not open a public issue for a suspected vulnerability. Submit a private report through [GitHub's vulnerability reporting form for KeelMatrix/ForwardTrust](https://github.com/KeelMatrix/ForwardTrust/security/advisories/new). Include the affected version, a minimal synthetic reproduction, expected and observed behavior, and impact. Do not include production headers, credentials, cookies, or customer data.
 
 ## Supported versions
 
