@@ -52,6 +52,7 @@ public sealed class ForwardTrustScenario
     /// <summary>Gets the expected identity returned by the application probe.</summary>
     /// <remarks>Accepted expectations must correspond to original header values. Contradictory definitions return <see cref="ForwardTrustFailureKind.MalformedScenario"/> before any request. Partial chains are supported: controls seek a reproducible change at a matching original hop without changing other identity fields. Values actually applied equal to baseline remain valid.</remarks>
     /// <remarks>When accepted and rejected host observations coincide, replayed ordinary Host-header controls distinguish original forwarded-host application from a matching baseline. Generated controls use the same header bounds as scenario input.</remarks>
+    /// <remarks>Host correspondence uses framework normalization. An unnormalizable token, including malformed IDN input, cannot supply a witness and does not exclude a different valid effective-hop witness. Normalization alone does not prove middleware acceptance.</remarks>
     public ForwardedIdentity ExpectedIdentity { get; }
 
     /// <summary>Gets whether the scenario expects forwarded values to be applied or rejected.</summary>

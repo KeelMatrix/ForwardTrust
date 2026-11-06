@@ -26,6 +26,7 @@ pwsh -NoProfile -File scripts/package-gate.ps1
 - Verification is read-only with respect to the caller's application configuration; it never rewrites `ForwardedHeadersOptions`.
 - Scenario validation is complete before any request executes.
 - Accepted expectations correspond to original forwarded values in every asserted dimension; controls prove a reproducible change at an effective consumed hop, including partial chains.
+- Failed host normalization excludes only that candidate; malformed IDN siblings cannot exclude a valid effective-hop witness, and normalization never substitutes for middleware acceptance.
 - Per-request deadlines include synchronous invocation and asynchronous completion. Caller cancellation is checked between requests; arbitrary caller code cannot be forcibly interrupted.
 - Each `ForwardTrustRequest` snapshots its immediate-peer address and returns a defensive copy, so sender mutations cannot change later probe inputs.
 - No external network, DNS, cloud metadata, or telemetry call is part of v1.

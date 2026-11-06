@@ -14,4 +14,6 @@ Trust only explicitly configured proxy addresses and networks. Clearing trusted 
 
 Accepted expectations must correspond to original forwarded values in every asserted dimension. Controls target a matching effective hop and require exact alternate-value results, stable replays and an unchanged rejected path. A permitted alternate host does not establish acceptance of a different original host. Timeouts include synchronous invocation, but cannot forcibly stop arbitrary sender code; late results fail when control returns.
 
+Host tokens that fail framework normalization, including malformed IDN values, cannot supply an original-value witness. Such a token does not exclude a different valid effective-hop witness. Without a matching original, validation returns structured `MalformedScenario` before sending. Normalization does not establish host-policy acceptance or replace the causal controls.
+
 When both peers expose the same host, ordinary `Host`-header controls distinguish original forwarded-host application from a matching baseline; host-policy rejection cannot pass solely because the ignored original equals that baseline.

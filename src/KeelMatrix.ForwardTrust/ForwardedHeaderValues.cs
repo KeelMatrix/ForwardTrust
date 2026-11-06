@@ -26,16 +26,27 @@ internal static class ForwardedHeaderValues
     internal static bool Matches(ForwardTrustDimension dimension, ForwardedIdentity identity, Token token) => dimension switch
     {
         ForwardTrustDimension.Scheme => string.Equals(identity.Scheme, token.Value, StringComparison.OrdinalIgnoreCase),
-        ForwardTrustDimension.Host => HostMatches(identity.Host, token.Value),
+        ForwardTrustDimension.Host => TryNormalizeHost(token.Value, out var host)
+            && string.Equals(identity.Host, host, StringComparison.OrdinalIgnoreCase),
         ForwardTrustDimension.ClientAddress => IPEndPoint.TryParse(token.Value, out var endpoint)
             && identity.ClientAddress.MapToIPv6().Equals(endpoint.Address.MapToIPv6()),
         _ => false
     };
 
-    private static bool HostMatches(string? expected, string value)
+    private static bool TryNormalizeHost(string value, out string? host)
     {
-        try { return string.Equals(expected, HostString.FromUriComponent(value).ToString(), StringComparison.OrdinalIgnoreCase); }
-        catch (FormatException) { return false; }
+        try
+        {
+            host = HostString.FromUriComponent(value).ToString();
+            return true;
+        }
+        // Framework IDN decoding and encoding can both reject input. Exclude only
+        // this token so malformed siblings cannot hide a valid effective-hop witness.
+        catch (Exception exception) when (exception is FormatException or ArgumentException)
+        {
+            host = null;
+            return false;
+        }
     }
 
     internal sealed record Token(string Value, int Offset, int Length)

@@ -28,6 +28,7 @@ public sealed class ForwardTrustVerifier
     }
 
     /// <summary>Verifies scenarios asynchronously without changing the caller's ASP.NET Core configuration.</summary>
+    /// <remarks>Host tokens that fail framework normalization, including malformed IDN values, cannot establish original-value correspondence. They do not exclude a different valid effective-hop witness. Without a matching original value, validation returns <see cref="ForwardTrustFailureKind.MalformedScenario"/> before sending; normalizable values still require middleware acceptance and causal proof.</remarks>
     /// <param name="scenarios">The finite scenario sequence to validate and execute.</param>
     /// <param name="requestSender">The caller-owned seam that must execute every supplied request against the application pipeline.</param>
     /// <param name="cancellationToken">The cancellation token for the verification run.</param>
