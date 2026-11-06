@@ -12,6 +12,8 @@ public sealed class ForwardTrustHostNormalizationTests
     private static readonly IPAddress Trusted = IPAddress.Parse("10.0.0.10");
     private static readonly IPAddress Untrusted = IPAddress.Parse("10.0.0.20");
     private static readonly string[] MalformedHosts = ["xn--", "xn--.example", "xn--a.example", "\u0080.example"];
+    private static readonly string[] Schemes = ["https", "http", "custom"];
+    private static readonly string[] Clients = ["198.51.100.100", "10.0.0.11", "10.0.0.12"];
 
     public static IEnumerable<object?[]> NormalizationCases()
     {
@@ -215,14 +217,14 @@ public sealed class ForwardTrustHostNormalizationTests
     private static Dictionary<string, string> ChainHeaders(string[] hosts, ForwardedHeaders flags, bool quoted)
     {
         var headers = new Dictionary<string, string> { ["X-Forwarded-Host"] = string.Join(", ", hosts.Select(value => Quote(value, quoted))) };
-        if (flags.HasFlag(ForwardedHeaders.XForwardedProto)) { headers["X-Forwarded-Proto"] = string.Join(", ", new[] { "https", "http", "custom" }.Take(hosts.Length)); }
-        if (flags.HasFlag(ForwardedHeaders.XForwardedFor)) { headers["X-Forwarded-For"] = string.Join(", ", new[] { "198.51.100.100", "10.0.0.11", "10.0.0.12" }.Take(hosts.Length)); }
+        if (flags.HasFlag(ForwardedHeaders.XForwardedProto)) { headers["X-Forwarded-Proto"] = string.Join(", ", Schemes.Take(hosts.Length)); }
+        if (flags.HasFlag(ForwardedHeaders.XForwardedFor)) { headers["X-Forwarded-For"] = string.Join(", ", Clients.Take(hosts.Length)); }
         return headers;
     }
 
     private static ForwardedIdentity ChainIdentity(ForwardedHeaders flags, int effective, string host) => new(
-        flags.HasFlag(ForwardedHeaders.XForwardedProto) ? new[] { "https", "http", "custom" }[effective] : "http",
-        flags.HasFlag(ForwardedHeaders.XForwardedFor) ? IPAddress.Parse(new[] { "198.51.100.100", "10.0.0.11", "10.0.0.12" }[effective]) : Trusted, host);
+        flags.HasFlag(ForwardedHeaders.XForwardedProto) ? Schemes[effective] : "http",
+        flags.HasFlag(ForwardedHeaders.XForwardedFor) ? IPAddress.Parse(Clients[effective]) : Trusted, host);
 
     private static string Quote(string value, bool quoted) => quoted ? $"\"{value}\"" : value;
 
