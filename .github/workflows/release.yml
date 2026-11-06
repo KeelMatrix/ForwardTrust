@@ -28,7 +28,7 @@ jobs:
           $version = $env:GITHUB_REF_NAME.Substring(1)
           $releaseCommit = (git rev-parse HEAD).Trim()
           $releaseDate = (git show -s --format=%cs $releaseCommit).Trim()
-          ./scripts/validate-release.ps1 -ExpectedVersion $version -ExpectedPackageVersion $version -ExpectedTag $env:GITHUB_REF_NAME -ExpectedCommit $releaseCommit -ExpectedReleaseDate $releaseDate -RequireTag -RequireIcon
+          ./scripts/validate-changelog.ps1 -State Tagged -ExpectedVersion $version -ExpectedPackageVersion $version -ExpectedTag $env:GITHUB_REF_NAME -ExpectedCommit $releaseCommit -ExpectedReleaseDate $releaseDate -RequireIcon
       - name: Restore
         run: dotnet restore KeelMatrix.ForwardTrust.sln --configfile NuGet.config --force
       - name: Audit package vulnerabilities

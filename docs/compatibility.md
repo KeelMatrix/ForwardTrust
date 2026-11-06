@@ -4,13 +4,17 @@ This note records the current platform facts that shape the v1 contract. It is i
 
 ## Supported runtime
 
-ForwardTrust ships only a `net8.0` asset and is tested against the ASP.NET Core 8 shared framework. On 2026-09-24, .NET 8 was in maintenance support at patch `8.0.31`, with support listed through 2026-11-10. Consumers should keep the .NET 8 servicing line current.
+ForwardTrust ships only a `net8.0` asset and is tested against the ASP.NET Core 8 shared framework. On 2026-11-06, .NET 8 was in maintenance support at patch `8.0.33`, with support listed through 2026-11-10. The documented setup and repository consumers select [TestHost 8.0.33](https://www.nuget.org/packages/Microsoft.AspNetCore.TestHost/8.0.33), which targets `net8.0`. Consumers should keep the .NET 8 servicing line current.
 
 ## Forwarded-header behavior
 
 ASP.NET Core 8.0.17 introduced hardening that ignores `X-Forwarded-*` values from unknown proxies. The v1 fixtures use `ForwardedHeadersOptions.KnownProxies`, `KnownNetworks`, and `ForwardLimit`; on net8.0, `ForwardLimit` defaults to `1`, and headers are processed right-to-left. ForwardTrust does not alter any of those options.
 
-Each scenario with an asserted forwarded dimension declares its own opposite-trust peer and expected identity. For every asserted scheme, host, and client-address header, the verifier sends the original and a counterfactual through both peers, then reissues each identical request. The accepted path must match the exact generated value, or the caller-selected value for a host probe, while preserving every non-target identity field; the rejected path must preserve its full identity. A host probe can set `ForwardTrustScenario.CounterfactualHost` to a distinct ASCII value accepted by the application's existing host policy; use punycode for internationalized names. ForwardTrust does not change that policy. These controls detect missing controls, peer/default echoes, and observable rewrite, replay, ordering, timing, randomness, or state drift.
+Each scenario with an asserted forwarded dimension declares its own opposite-trust peer and expected identity. Accepted expectations must correspond to original values in each asserted dimension; contradictory definitions return `MalformedScenario` before sending. Controls replace matching original tokens, testing repeated matches from right to left until an effective-hop witness passes. This supports partial chains, unequal lengths, and processing stopped by a limit or trust boundary. IP endpoint ports are ignored for address comparison and IPv4-mapped IPv6 addresses compare equivalently.
+
+Each hop trial sends original and counterfactual requests through both peers, then reissues each identical request. The accepted path must match the exact generated value, or the caller-selected value for a host probe, while preserving every non-target identity field; the rejected path must preserve its full identity. A host probe can set `ForwardTrustScenario.CounterfactualHost` to a distinct ASCII value accepted by the application's existing host policy; use punycode for internationalized names. ForwardTrust does not change that policy. These controls detect missing controls, peer/default echoes, and observable rewrite, replay, ordering, timing, randomness, or state drift.
+
+If accepted and rejected host observations coincide, ordinary `Host`-header controls and their replays distinguish application of the original forwarded host from a matching baseline. The accepted identity must stay unchanged and the rejected path must expose the alternate ordinary host. All potential generated controls share the scenario's header size and count bounds, including an added or replaced `Host` header.
 
 `ForwardedIdentity` copies its `IPAddress` at construction and when `ClientAddress` is read. Mutating an input or returned IPv6 address therefore cannot change the expected identity stored by a scenario.
 
@@ -27,6 +31,10 @@ Each scenario must also assert at least one supported forwarded dimension. `X-Fo
 When the primary expectation is `Rejected` and host is asserted, the accepted control must declare the expected host for the original forwarded value. If it does not, validation returns `RequestApplicationNotProven` before any sender call; a default or custom counterfactual cannot supply that missing original-host proof. If the application rejects the original host through its host policy, the accepted control fails its expected-host assertion even when the counterfactual host is allowed.
 
 `ForwardTrustResult.Scenarios`, aggregate failures, and per-scenario failures are read-only defensive snapshots. A caller cannot mutate a returned collection to make aggregate and per-scenario verdicts disagree.
+
+## Cancellation and deadlines
+
+`ForwardTrustVerifierOptions.RequestTimeout` defaults to five seconds and must be positive and no greater than two minutes. Its monotonic deadline includes synchronous invocation and asynchronous completion. Late results return `HostProbeFailure`; caller cancellation is checked before each invocation and after completion and propagates `OperationCanceledException`. Arbitrary caller code cannot be forcibly interrupted, so synchronously blocking work is checked when it returns. The API XML is the source of truth for this contract.
 
 ## Test-host peer seam
 

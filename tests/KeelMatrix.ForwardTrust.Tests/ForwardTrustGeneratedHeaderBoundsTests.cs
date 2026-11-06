@@ -72,7 +72,7 @@ public sealed class ForwardTrustGeneratedHeaderBoundsTests
         int originalLength,
         int hopCount)
     {
-        var originalValue = CreateHeaderValue(originalLength, firstTokenLength: 1, hopCount);
+        var originalValue = CreateHeaderValue(originalLength, firstTokenLength: 1, hopCount, headerName);
         var scenario = CreateScenario(headerName, originalValue, counterfactualHost);
         var senderCalls = 0;
 
@@ -98,7 +98,7 @@ public sealed class ForwardTrustGeneratedHeaderBoundsTests
     {
         var counterfactualValue = CounterfactualValue(headerName, counterfactualHost);
         var suffixLength = generatedLength - counterfactualValue.Length;
-        var originalValue = CreateHeaderValue(1 + suffixLength, firstTokenLength: 1, hopCount);
+        var originalValue = CreateHeaderValue(1 + suffixLength, firstTokenLength: 1, hopCount, headerName);
         var expectedGeneratedValue = string.Concat(counterfactualValue, originalValue.AsSpan(1));
         var requests = new List<ForwardTrustRequest>();
 
@@ -128,7 +128,7 @@ public sealed class ForwardTrustGeneratedHeaderBoundsTests
         var counterfactualValue = CounterfactualValue(headerName, counterfactualHost);
         const int generatedValueLength = MaxHeaderValueLength - 128;
         var originalValueLength = generatedValueLength - counterfactualValue.Length + 1;
-        var originalValue = CreateHeaderValue(originalValueLength, firstTokenLength: 1, hopCount: 1);
+        var originalValue = CreateHeaderValue(originalValueLength, firstTokenLength: 1, hopCount: 1, headerName);
         var headers = CreateHeadersAtAggregateLimit(headerName, originalValue, aggregateLength, filler);
         var scenario = CreateScenario(headerName, headers, counterfactualHost);
         var senderCalls = 0;
@@ -154,11 +154,12 @@ public sealed class ForwardTrustGeneratedHeaderBoundsTests
         string? counterfactualHost,
         int hopCount)
     {
-        const int firstTokenLength = 128;
+        var firstTokenLength = headerName == "X-Forwarded-For" ? 39 : 128;
         var originalValue = CreateHeaderValue(
             firstTokenLength + 32,
             firstTokenLength,
-            hopCount);
+            hopCount,
+            headerName);
         var counterfactualValue = CounterfactualValue(headerName, counterfactualHost);
         var expectedGeneratedValue = string.Concat(counterfactualValue, originalValue.AsSpan(firstTokenLength));
         var requests = new List<ForwardTrustRequest>();
@@ -181,7 +182,8 @@ public sealed class ForwardTrustGeneratedHeaderBoundsTests
         string headerName,
         string? counterfactualHost)
     {
-        var scenario = CreateScenario(headerName, "x", counterfactualHost);
+        var original = headerName == "X-Forwarded-For" ? "1" : "x";
+        var scenario = CreateScenario(headerName, original, counterfactualHost);
         var requests = new List<ForwardTrustRequest>();
         var counterfactualValue = CounterfactualValue(headerName, counterfactualHost);
 
@@ -192,7 +194,7 @@ public sealed class ForwardTrustGeneratedHeaderBoundsTests
         Assert.Equal(8, requests.Count);
         Assert.Equal(counterfactualValue, requests[2].Headers[headerName]);
         Assert.Equal(counterfactualValue, requests[3].Headers[headerName]);
-        Assert.Equal("x", requests[0].Headers[headerName]);
+        Assert.Equal(original, requests[0].Headers[headerName]);
     }
 
     public static IEnumerable<object[]> HeaderCasesAsMemberData()
@@ -235,11 +237,12 @@ public sealed class ForwardTrustGeneratedHeaderBoundsTests
         IReadOnlyDictionary<string, string> headers,
         string? counterfactualHost)
     {
+        var original = headers[headerName].Split(',')[0].Trim();
         var expectedIdentity = headerName switch
         {
-            "X-Forwarded-Proto" => new ForwardedIdentity("https", AcceptedClient),
-            "X-Forwarded-Host" => new ForwardedIdentity("http", AcceptedClient, "public.example"),
-            _ => new ForwardedIdentity("http", AcceptedClient)
+            "X-Forwarded-Proto" => new ForwardedIdentity(original, AcceptedClient),
+            "X-Forwarded-Host" => new ForwardedIdentity("http", AcceptedClient, original),
+            _ => new ForwardedIdentity("http", IPEndPoint.Parse(original).Address)
         };
         var rejectedIdentity = headerName switch
         {
@@ -273,7 +276,7 @@ public sealed class ForwardTrustGeneratedHeaderBoundsTests
     {
         if (headerName == "X-Forwarded-Proto")
         {
-            return "http";
+            return "https";
         }
 
         if (headerName == "X-Forwarded-Host")
@@ -284,7 +287,7 @@ public sealed class ForwardTrustGeneratedHeaderBoundsTests
         return "203.0.113.254";
     }
 
-    private static string CreateHeaderValue(int length, int firstTokenLength, int hopCount)
+    private static string CreateHeaderValue(int length, int firstTokenLength, int hopCount, string headerName)
     {
         var suffixLength = length - firstTokenLength;
         if (suffixLength < 0)
@@ -292,7 +295,9 @@ public sealed class ForwardTrustGeneratedHeaderBoundsTests
             throw new ArgumentOutOfRangeException(nameof(length));
         }
 
-        var firstToken = new string('a', firstTokenLength);
+        var firstToken = headerName == "X-Forwarded-For"
+            ? firstTokenLength == 1 ? "1" : "2001:0db8:0000:0000:0000:0000:0000:0001"
+            : new string('a', firstTokenLength);
         if (hopCount == 0)
         {
             return firstToken;

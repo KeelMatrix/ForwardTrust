@@ -11,3 +11,7 @@ Only the latest maintained release receives security fixes. ForwardTrust is a te
 ## Safe configuration
 
 Trust only explicitly configured proxy addresses and networks. Clearing trusted lists broadens trust and can allow forwarded-header spoofing; it is not a safe workaround.
+
+Accepted expectations must correspond to original forwarded values in every asserted dimension. Controls target a matching effective hop and require exact alternate-value results, stable replays and an unchanged rejected path. A permitted alternate host does not establish acceptance of a different original host. Timeouts include synchronous invocation, but cannot forcibly stop arbitrary sender code; late results fail when control returns.
+
+When both peers expose the same host, ordinary `Host`-header controls distinguish original forwarded-host application from a matching baseline; host-policy rejection cannot pass solely because the ignored original equals that baseline.

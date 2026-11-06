@@ -8,9 +8,11 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '../build/Invoke-NestedPwsh.ps1')
 $root = (Resolve-Path $RepositoryRoot).Path
-$candidateValidator = Join-Path $root 'scripts/validate-candidate-changelog.ps1'
-$releaseValidator = Join-Path $root 'scripts/validate-release.ps1'
-$tempRoot = Join-Path ([IO.Path]::GetTempPath()) ("forwardtrust-changelog-contract-" + [guid]::NewGuid().ToString('N'))
+$candidateValidator = Join-Path $PSScriptRoot 'validate-candidate-changelog.ps1'
+$releaseValidator = Join-Path $PSScriptRoot 'validate-release.ps1'
+$packageGate = Join-Path $PSScriptRoot 'package-gate.ps1'
+$scratchRoot = if ($env:TMPDIR) { $env:TMPDIR } else { [IO.Path]::GetTempPath() }
+$tempRoot = Join-Path $scratchRoot ("forwardtrust-changelog-contract-" + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tempRoot | Out-Null
 
 function Assert-Result([string]$Label, [bool]$ExpectedPass) {
@@ -23,6 +25,8 @@ function Assert-Result([string]$Label, [bool]$ExpectedPass) {
 function Invoke-CandidateContract([string]$FixtureRoot, [string]$Version, [bool]$ShouldPass, [string]$Label) {
     Invoke-NestedPwsh -NoProfile -File $candidateValidator -RepositoryRoot $FixtureRoot -ExpectedVersion $Version -ExpectedPackageVersion $Version
     Assert-Result $Label $ShouldPass
+    Invoke-NestedPwsh -NoProfile -File $packageGate -Stage Changelog -RepositoryRoot $FixtureRoot -ExpectedVersion $Version -ExpectedPackageVersion $Version -ChangelogState Unreleased
+    Assert-Result "package gate: $Label" $ShouldPass
 }
 
 function Invoke-ReleaseContract(
@@ -50,6 +54,9 @@ function Invoke-ReleaseContract(
     }
     Invoke-NestedPwsh @arguments
     Assert-Result $Label $ShouldPass
+    $state = if ($RequireTag) { 'Tagged' } else { 'Finalized' }
+    Invoke-NestedPwsh -NoProfile -File $packageGate -Stage Changelog -RepositoryRoot $FixtureRoot -ExpectedVersion $Version -ExpectedPackageVersion $PackageVersion -ChangelogState $state -ExpectedTag $Tag -ExpectedCommit $Commit -ExpectedReleaseDate $ReleaseDate
+    Assert-Result "package gate: $Label" $ShouldPass
 }
 
 function Write-Fixture([string]$FixtureRoot, [string]$PackageVersion, [string]$Changelog) {
@@ -192,7 +199,8 @@ function Add-SecondCommit([pscustomobject]$Fixture) {
 }
 
 try {
-    Invoke-CandidateContract $root $ExpectedVersion $true 'unreleased repository candidate'
+    Invoke-NestedPwsh -NoProfile -File $packageGate -Stage Changelog -RepositoryRoot $root -ExpectedVersion $ExpectedVersion -ExpectedPackageVersion $ExpectedPackageVersion
+    Assert-Result 'repository lifecycle gate' $true
 
     $firstCandidate = Join-Path $tempRoot 'first-candidate'
     Write-Fixture $firstCandidate '0.1.0' @'
@@ -205,6 +213,8 @@ try {
 - Initial consumer-facing package capabilities.
 '@
     Invoke-CandidateContract $firstCandidate '0.1.0' $true 'first-release Unreleased candidate'
+    Invoke-NestedPwsh -NoProfile -File $packageGate -Stage Changelog -RepositoryRoot $firstCandidate
+    Assert-Result 'automatic unreleased package gate' $true
 
     $subsequentCandidate = Join-Path $tempRoot 'subsequent-candidate'
     Write-Fixture $subsequentCandidate '0.2.0' @'
@@ -261,9 +271,17 @@ try {
 '@
     $firstRelease = New-ReleaseFixture 'first-release' '0.1.0' $firstReleaseText
     Invoke-ReleaseContract $firstRelease.Root '0.1.0' '0.1.0' 'v0.1.0' $firstRelease.Commit $firstRelease.Date $false $true 'first-release finalization before tag'
+    Invoke-NestedPwsh -NoProfile -File $packageGate -Stage Changelog -RepositoryRoot $firstRelease.Root
+    Assert-Result 'automatic finalized package gate' $true
     & git -C $firstRelease.Root tag 'v0.1.0' $firstRelease.Commit
     if ($LASTEXITCODE -ne 0) { throw 'Could not create first-release tag fixture.' }
     Invoke-ReleaseContract $firstRelease.Root '0.1.0' '0.1.0' 'v0.1.0' $firstRelease.Commit $firstRelease.Date $true $true 'first-release exact tag SHA'
+    Invoke-NestedPwsh -NoProfile -File $packageGate -Stage Changelog -RepositoryRoot $firstRelease.Root
+    Assert-Result 'automatic exact-tag package gate' $true
+    Invoke-ReleaseContract $firstRelease.Root '0.1.0-preview' '0.1.0-preview' 'v0.1.0-preview' $firstRelease.Commit $firstRelease.Date $true $false 'invalid stable version'
+    Invoke-ReleaseContract $firstRelease.Root '0.1.0' '0.1.0' 'v0.1.0' 'not-a-sha' $firstRelease.Date $true $false 'invalid commit syntax'
+    Invoke-ReleaseContract $firstRelease.Root '0.1.0' '0.1.0' 'v0.1.0' ('0' * 40) $firstRelease.Date $true $false 'wrong exact commit'
+    Invoke-ReleaseContract $firstRelease.Root '0.1.0' '0.1.0' 'v0.1.0' $firstRelease.Commit '2026-02-30' $true $false 'invalid calendar date'
     Invoke-ReleaseContract $firstRelease.Root '0.1.0' '0.1.0' 'v0.1.0' $firstRelease.Commit $firstRelease.Date $false $false 'already-created tag on pre-tag path'
 
     foreach ($lineEnding in @('LF', 'CRLF')) {
@@ -410,8 +428,34 @@ try {
     $stranded = New-ReleaseFixture 'stranded-unreleased-changes' '0.1.0' $strandedText
     Invoke-ReleaseContract $stranded.Root '0.1.0' '0.1.0' 'v0.1.0' $stranded.Commit $stranded.Date $false $false 'release rejects changes stranded under Unreleased'
 
+    # Automatic dispatch must not disguise a malformed finalized state as Unreleased.
+    foreach ($heading in @('## [0.1.0]-2026-10-18', '## [0.1.0] - 2026-02-30', '## [0.2.0] - 2026-10-18', '## [0.1.x] - 2026-10-18')) {
+        $fixtureRoot = Join-Path $tempRoot ([guid]::NewGuid().ToString('N'))
+        Write-Fixture $fixtureRoot '0.1.0' ($firstReleaseText.Replace('## [0.1.0] - 2026-10-18', $heading))
+        Invoke-NestedPwsh -NoProfile -File $packageGate -Stage Changelog -RepositoryRoot $fixtureRoot
+        Assert-Result "automatic gate rejects heading $heading" $false
+    }
+    $taggedUnreleased = New-ReleaseFixture 'tagged-unreleased' '0.1.0' $firstReleaseText 'v0.1.0' $true
+    Write-Fixture $taggedUnreleased.Root '0.1.0' "# Changelog`n`n## [Unreleased]`n`n### Added`n`n- Initial package."
+    Amend-FixtureCommit $taggedUnreleased.Root
+    Invoke-NestedPwsh -NoProfile -File $packageGate -Stage Changelog -RepositoryRoot $taggedUnreleased.Root
+    Assert-Result 'automatic gate rejects tagged Unreleased version' $false
+
+    $allFailure = Join-Path $tempRoot 'all-stage-invalid-changelog'
+    Write-Fixture $allFailure '0.1.0' "# Changelog`n`n## [Unreleased]`n`n## [0.1.0] - invalid-date"
+    $artifactSentinel = Join-Path $allFailure 'artifacts/sentinel.txt'
+    New-Item -ItemType Directory -Path (Split-Path -Parent $artifactSentinel) | Out-Null
+    Set-Content -LiteralPath $artifactSentinel -Value 'preserve before validation' -Encoding utf8
+    Invoke-NestedPwsh -NoProfile -File $packageGate -RepositoryRoot $allFailure
+    Assert-Result 'default All stage propagates changelog failure before build/cleanup' $false
+    if (-not (Test-Path -LiteralPath $artifactSentinel)) { throw 'Invalid changelog reached artifact cleanup.' }
+
     Write-Output 'Changelog contract tests passed: candidate/finalized states, heading uniqueness, first-release category and remediation rules, tag/SHA behavior, version/date mismatches, and stranded Unreleased changes.'
 }
 finally {
+    $resolvedScratch = [IO.Path]::GetFullPath($scratchRoot).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+    if (-not [IO.Path]::GetFullPath($tempRoot).StartsWith($resolvedScratch, [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Changelog fixture cleanup path is outside the temporary directory.'
+    }
     Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
 }

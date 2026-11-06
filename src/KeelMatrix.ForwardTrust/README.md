@@ -5,16 +5,18 @@ Verify ASP.NET Core forwarded-header trust behavior with executable integration-
 ## Install
 
 ```bash
+dotnet new xunit --framework net8.0 --name ForwardTrust.Tests
+cd ForwardTrust.Tests
 dotnet add package KeelMatrix.ForwardTrust
-dotnet add package Microsoft.AspNetCore.TestHost
+dotnet add package Microsoft.AspNetCore.TestHost --version 8.0.33
 dotnet add package xunit
 ```
 
-The second and third packages belong in the consumer's test project. They provide the test host and assertion framework used by this example; `KeelMatrix.ForwardTrust` itself has no `Microsoft.AspNetCore.TestHost` runtime dependency.
+Use the .NET 8 SDK. In an existing xUnit test project, run the three `dotnet add package` commands there. TestHost is pinned to ASP.NET Core 8 because an unversioned command can select a newer, incompatible framework. ForwardTrust has no TestHost runtime dependency.
 
 ## Quick start
 
-This complete xUnit example runs the real forwarded-header middleware in an in-memory ASP.NET Core test host. The request sender applies both the simulated peer and headers before the pipeline runs.
+Replace the generated `UnitTest1.cs` with this code, then run `dotnet test -c Release`. This complete xUnit example runs the real forwarded-header middleware in an in-memory ASP.NET Core test host. The request sender applies both the simulated peer and headers before the pipeline runs.
 
 ```csharp
 using System.Net;
@@ -66,10 +68,20 @@ public sealed class ForwardTrustQuickStartTests
                 "10.0.0.20",
                 new ForwardedIdentity("http", IPAddress.Parse("10.0.0.20"), "localhost")));
 
+        var untrustedScenario = new ForwardTrustScenario(
+            "untrusted-peer",
+            "10.0.0.20",
+            new ForwardedIdentity("http", IPAddress.Parse("10.0.0.20"), "localhost"),
+            ForwardTrustHeaderExpectation.Rejected,
+            scenario.Headers,
+            control: new ForwardTrustControl("10.0.0.10", scenario.ExpectedIdentity));
+
         var result = await new ForwardTrustVerifier().VerifyAsync(
-            [scenario],
+            [scenario, untrustedScenario],
             SendThroughTestHost(host.GetTestServer()));
 
+        Assert.Equal(2, result.Scenarios.Count);
+        Assert.All(result.Scenarios, item => Assert.True(item.Succeeded));
         Assert.True(result.Succeeded, string.Join(" | ", result.Failures.Select(failure => failure.Message)));
     }
 
@@ -96,7 +108,11 @@ public sealed class ForwardTrustQuickStartTests
 }
 ```
 
-For an untrusted peer, use `ForwardTrustHeaderExpectation.Rejected`, expect the identity exposed when forwarded values are ignored, and set `control` to a trusted peer plus the identity those same headers must produce. An accepted scenario uses an untrusted control peer and its ignored-header identity. The verifier checks every generated counterfactual against the same header limits before sending any request. For every asserted dimension, it then sends original and counterfactual requests through both peers and reissues each identical request. A pass requires the accepted counterfactual to match the exact generated value (or the caller-selected host value) while preserving every non-target identity field; the rejected path must preserve its full identity.
+For an untrusted peer, use `ForwardTrustHeaderExpectation.Rejected`, expect the identity exposed when forwarded values are ignored, and set `control` to a trusted peer plus the identity those same headers must produce. An accepted scenario uses an untrusted control peer and its ignored-header identity. The verifier checks every generated counterfactual against the same header limits before sending any request. For each asserted dimension and hop trial, it sends original and counterfactual requests through both peers and reissues each identical request. A pass requires the accepted counterfactual to match the exact generated value (or the caller-selected host value) while preserving every non-target identity field; the rejected path must preserve its full identity.
+
+Accepted expectations, on either side, must match original forwarded values in every asserted dimension; contradictory definitions return `MalformedScenario` before any request. IP endpoints compare by address, including equivalent IPv4/IPv6 representations. Controls change a matching original token at the effective consumed hop, preserving other tokens. This supports right-to-left processing stopped by forward limits or trust boundaries, unequal header lengths, and actually applied original values equal to baseline. Repeated matching values can require additional hop trials.
+
+When accepted and rejected host observations coincide, replayed controls also change the ordinary `Host` header. The accepted path must retain the original forwarded host while the rejected path exposes the alternate baseline host. This distinguishes original host-policy rejection from a legitimately applied value equal to baseline. Every possible generated control, including an added or replaced `Host` header, is checked against the same header bounds before any request.
 
 For a two-hop boundary, set the application pipeline's `ForwardLimit` to `2` and keep the chain aligned across the asserted forwarded dimensions:
 
@@ -122,7 +138,7 @@ Assert.True(result.Succeeded, string.Join(" | ", result.Failures.Select(failure 
 
 Scenario input must contain at least one item and is limited by `ForwardTrustVerifierOptions.MaxScenarioCount` (32 by default, 256 maximum); lazy input is stopped at the first item over that limit. Each scenario accepts at most 64 headers, 64 KiB of aggregate UTF-8 header-name/value bytes, 256 characters per header name, and 16 KiB per value. Header names must use HTTP token characters, names that differ only by case are rejected, and values may contain horizontal tab, visible ASCII, or obs-text only. Generated counterfactual values are checked against the same per-value and aggregate UTF-8 limits before any request sender runs. Violations return `MalformedScenario` before the sender runs.
 
-Each caller-provided host/probe request uses `ForwardTrustVerifierOptions.RequestTimeout`, which defaults to 5 seconds and accepts any positive `TimeSpan` up to and including 2 minutes. Constructing `ForwardTrustVerifier` with zero, a negative value, or a value over 2 minutes throws `ArgumentOutOfRangeException`. If a host/probe request does not finish before its timeout, the result reports `ForwardTrustFailureKind.HostProbeFailure` for that scenario.
+Each caller-provided host/probe request uses `ForwardTrustVerifierOptions.RequestTimeout`, which defaults to 5 seconds and accepts any positive `TimeSpan` up to and including 2 minutes. Constructing `ForwardTrustVerifier` with zero, a negative value, or a value over 2 minutes throws `ArgumentOutOfRangeException`. The deadline includes synchronous sender invocation and asynchronous completion. Late results return `ForwardTrustFailureKind.HostProbeFailure`. Arbitrary sender code cannot be forcibly interrupted; synchronous work is checked when it returns. Caller cancellation is checked before each request and after completion, propagating `OperationCanceledException` and stopping further requests.
 
 Each individual scenario must also assert at least one supported forwarded dimension: `X-Forwarded-For`, `X-Forwarded-Proto`, or `X-Forwarded-Host` when its expected identity includes a host. Without one, verification returns `ForwardedValueNotProven` before the request sender runs. A host header is ignored when the expected identity does not assert a host; other asserted dimensions remain eligible.
 
@@ -152,6 +168,6 @@ It also does not prove the actual configuration of a cloud load balancer, ingres
 
 Clearing trusted proxy/network lists broadens trust and can enable spoofing. Configure only the proxies and networks that are actually trusted.
 
-The repository README is the canonical source for the complete user-facing contract: [github.com/KeelMatrix/ForwardTrust](https://github.com/KeelMatrix/ForwardTrust#readme). This package README mirrors its install, executable quick start, scope, diagnostics, and privacy claims.
+This packed README is the source for the executable first-success setup, mirrored by the [repository README](https://github.com/KeelMatrix/ForwardTrust#readme). Public API XML documents scenario and deadline contracts, with implementation and executable regressions as behavioral evidence.
 
 The package targets `net8.0`, has no `Microsoft.AspNetCore.TestHost` runtime dependency, and omits telemetry in v1 so verdicts remain offline and independent of data collection. See the canonical [compatibility note](https://github.com/KeelMatrix/ForwardTrust/blob/main/docs/compatibility.md), [security policy](https://github.com/KeelMatrix/ForwardTrust/blob/main/SECURITY.md), and [privacy policy](https://github.com/KeelMatrix/ForwardTrust/blob/main/PRIVACY.md).

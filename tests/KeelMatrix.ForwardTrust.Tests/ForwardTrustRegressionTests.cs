@@ -919,7 +919,7 @@ public sealed class ForwardTrustRegressionTests
             },
             control: new ForwardTrustControl(
                 UntrustedProxy.ToString(),
-                new ForwardedIdentity("http", UntrustedProxy)));
+                new ForwardedIdentity("http", ExpectedClient)));
         var verifier = new ForwardTrustVerifier(new ForwardTrustVerifierOptions { RequestTimeout = TimeSpan.FromMilliseconds(100) });
         var nullResult = await verifier.VerifyAsync([scenario], static (_, _) => ValueTask.FromResult<ForwardedIdentity>(null!));
         var thrownResult = await verifier.VerifyAsync([scenario], static (_, _) => ValueTask.FromException<ForwardedIdentity>(new InvalidOperationException("setup")));

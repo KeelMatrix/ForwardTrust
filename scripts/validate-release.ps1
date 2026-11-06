@@ -103,6 +103,7 @@ if ($LASTEXITCODE -ne 0 -or $actualCommitDate -ne $ExpectedReleaseDate) {
 $tagReference = "refs/tags/$ExpectedTag"
 $tagExists = $false
 git -C $root show-ref --verify --quiet $tagReference
+if ($LASTEXITCODE -notin @(0, 1)) { Fail 'Could not determine whether the release tag exists.' }
 $tagExists = $LASTEXITCODE -eq 0
 if ($RequireTag) {
     if (-not $tagExists) {
@@ -120,12 +121,12 @@ if ($RequireTag) {
 
 $propsPath = Join-Path $root 'Directory.Build.props'
 $props = Get-Content -Raw $propsPath
-$versionMatch = [regex]::Match($props, '<Version>(?<version>[^<]+)</Version>')
-if (-not $versionMatch.Success) {
+$versionMatches = [regex]::Matches($props, '<Version>(?<version>[^<]+)</Version>')
+if ($versionMatches.Count -ne 1) {
     Fail 'Directory.Build.props does not contain a single source version.'
 }
-if ($versionMatch.Groups['version'].Value -ne $ExpectedPackageVersion) {
-    Fail "Directory.Build.props version '$($versionMatch.Groups['version'].Value)' does not match '$ExpectedPackageVersion'."
+if ($versionMatches[0].Groups['version'].Value -ne $ExpectedPackageVersion) {
+    Fail "Directory.Build.props version '$($versionMatches[0].Groups['version'].Value)' does not match '$ExpectedPackageVersion'."
 }
 
 $changelogPath = Join-Path $root 'CHANGELOG.md'
@@ -133,6 +134,10 @@ $changelog = Get-Content -Raw $changelogPath
 $unreleasedHeadings = [regex]::Matches($changelog, '(?m)^## \[Unreleased\]\s*$')
 if ($unreleasedHeadings.Count -ne 1) {
     Fail 'CHANGELOG.md must contain exactly one ## [Unreleased] section.'
+}
+$firstSection = [regex]::Match($changelog, '(?m)^## (?<heading>[^\r\n]+)')
+if (-not $firstSection.Success -or $firstSection.Groups['heading'].Value -cne '[Unreleased]') {
+    Fail 'The Unreleased section must be the first changelog section.'
 }
 $unreleasedMatch = [regex]::Match($changelog, "(?ms)^## \[Unreleased\]\s*\r?\n(?<body>.*?)(?=^## |\z)")
 if (-not $unreleasedMatch.Success) {

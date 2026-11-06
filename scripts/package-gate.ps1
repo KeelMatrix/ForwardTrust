@@ -1,9 +1,27 @@
 [CmdletBinding()]
-param([string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot))
+param(
+    [string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot),
+    [ValidateSet('All', 'Changelog')][string]$Stage = 'All',
+    [string]$ExpectedVersion = '0.1.0',
+    [string]$ExpectedPackageVersion = '0.1.0',
+    [ValidateSet('Auto', 'Unreleased', 'Finalized', 'Tagged')][string]$ChangelogState = 'Auto',
+    [string]$ExpectedTag,
+    [string]$ExpectedCommit,
+    [string]$ExpectedReleaseDate
+)
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '../build/Invoke-NestedPwsh.ps1')
 $root = (Resolve-Path $RepositoryRoot).Path
+$changelogArguments = @('-NoProfile', '-File', (Join-Path $PSScriptRoot 'validate-changelog.ps1'),
+    '-RepositoryRoot', $root, '-ExpectedVersion', $ExpectedVersion, '-ExpectedPackageVersion', $ExpectedPackageVersion, '-State', $ChangelogState)
+foreach ($name in @('ExpectedTag', 'ExpectedCommit', 'ExpectedReleaseDate')) {
+    $value = Get-Variable -Name $name -ValueOnly
+    if ($value) { $changelogArguments += @("-$name", $value) }
+}
+Invoke-NestedPwsh @changelogArguments
+if ($LASTEXITCODE -ne 0) { throw 'Changelog lifecycle gate failed.' }
+if ($Stage -eq 'Changelog') { return }
 $launchGuard = Join-Path $root 'build/Test-NestedPwshLaunch.ps1'
 & $launchGuard -SelfTest
 if ($LASTEXITCODE -ne 0) { throw 'Nested PowerShell launch guard self-test failed.' }
@@ -18,6 +36,7 @@ $packages = Join-Path $artifactRoot 'packages'
 $smokeFeed = Join-Path $artifactRoot 'smoke-feed'
 $consumerPackages = Join-Path $artifactRoot 'consumer-packages'
 
+if ([IO.Path]::GetFullPath($artifactRoot) -ne [IO.Path]::Combine($root, 'artifacts')) { throw 'Artifact cleanup path is outside the repository artifact directory.' }
 if (Test-Path $artifactRoot) { Remove-Item -LiteralPath $artifactRoot -Recurse -Force }
 New-Item -ItemType Directory -Path $packages, $smokeFeed, $consumerPackages | Out-Null
 

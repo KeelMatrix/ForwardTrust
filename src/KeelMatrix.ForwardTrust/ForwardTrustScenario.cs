@@ -11,11 +11,11 @@ public sealed class ForwardTrustScenario
     internal const int MaxAggregateHeaderBytes = 64 * 1024;
 
     /// <summary>
-    /// Creates a scenario. Address, control, header syntax, counterfactual-host syntax, case-insensitive header-name uniqueness, and generated counterfactual header bounds are checked before any request is sent.
+    /// Creates a scenario. Address, control, header syntax, original-value correspondence, counterfactual-host syntax, case-insensitive header-name uniqueness, and generated counterfactual header bounds are checked before any request is sent.
     /// </summary>
     /// <param name="name">The stable scenario name used in diagnostics.</param>
     /// <param name="immediatePeerAddress">The simulated peer address for the primary request.</param>
-    /// <param name="expectedIdentity">The expected identity for the primary request.</param>
+    /// <param name="expectedIdentity">The expected identity for the primary request. On the accepted side, every asserted dimension must match an original forwarded value at the effective consumed hop; address comparison includes equivalent IPv4/IPv6 representations and ignores endpoint ports.</param>
     /// <param name="headerExpectation">Whether the primary peer should accept or reject forwarded values.</param>
     /// <param name="headers">The request headers to apply.</param>
     /// <param name="path">The application probe path.</param>
@@ -50,6 +50,8 @@ public sealed class ForwardTrustScenario
     public string ImmediatePeerAddress { get; }
 
     /// <summary>Gets the expected identity returned by the application probe.</summary>
+    /// <remarks>Accepted expectations must correspond to original header values. Contradictory definitions return <see cref="ForwardTrustFailureKind.MalformedScenario"/> before any request. Partial chains are supported: controls seek a reproducible change at a matching original hop without changing other identity fields. Values actually applied equal to baseline remain valid.</remarks>
+    /// <remarks>When accepted and rejected host observations coincide, replayed ordinary Host-header controls distinguish original forwarded-host application from a matching baseline. Generated controls use the same header bounds as scenario input.</remarks>
     public ForwardedIdentity ExpectedIdentity { get; }
 
     /// <summary>Gets whether the scenario expects forwarded values to be applied or rejected.</summary>
