@@ -106,6 +106,7 @@ public sealed class ForwardTrustGeneratedHeaderBoundsTests
             [CreateScenario(headerName, originalValue, counterfactualHost)],
             RecordingSender(requests));
 
+        requests = ForwardedRequests(requests, headerName);
         Assert.Equal(8, requests.Count);
         Assert.Equal(expectedGeneratedValue, requests[2].Headers[headerName]);
         Assert.Equal(expectedGeneratedValue, requests[3].Headers[headerName]);
@@ -168,6 +169,7 @@ public sealed class ForwardTrustGeneratedHeaderBoundsTests
             [CreateScenario(headerName, originalValue, counterfactualHost)],
             RecordingSender(requests));
 
+        requests = ForwardedRequests(requests, headerName);
         Assert.Equal(8, requests.Count);
         Assert.True(counterfactualValue.Length < firstTokenLength);
         Assert.Equal(expectedGeneratedValue, requests[2].Headers[headerName]);
@@ -191,6 +193,7 @@ public sealed class ForwardTrustGeneratedHeaderBoundsTests
             [scenario],
             RecordingSender(requests));
 
+        requests = ForwardedRequests(requests, headerName);
         Assert.Equal(8, requests.Count);
         Assert.Equal(counterfactualValue, requests[2].Headers[headerName]);
         Assert.Equal(counterfactualValue, requests[3].Headers[headerName]);
@@ -270,6 +273,17 @@ public sealed class ForwardTrustGeneratedHeaderBoundsTests
             requests.Add(request);
             return ValueTask.FromResult(request.Scenario.ExpectedIdentity);
         };
+    }
+
+    private static List<ForwardTrustRequest> ForwardedRequests(List<ForwardTrustRequest> requests, string headerName)
+    {
+        Assert.All(requests, request =>
+        {
+            Assert.InRange(request.Headers.Count, 0, 64);
+            Assert.All(request.Headers.Values, value => Assert.InRange(value.Length, 0, MaxHeaderValueLength));
+            Assert.InRange(CountHeaderBytes(request.Headers), 0, MaxAggregateHeaderBytes);
+        });
+        return requests.Where(request => request.Headers.ContainsKey(headerName) && !request.Headers.ContainsKey("Host")).ToList();
     }
 
     private static string CounterfactualValue(string headerName, string? counterfactualHost)

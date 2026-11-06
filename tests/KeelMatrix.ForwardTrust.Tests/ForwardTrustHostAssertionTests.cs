@@ -53,7 +53,9 @@ public sealed class ForwardTrustHostAssertionTests
                 var peer = request.ImmediatePeerAddress;
                 var acceptedControlWithoutHostProof = !primaryIsAccepted && !controlHostPresent;
                 var rejectedControlWithoutHostExpectation = primaryIsAccepted && !controlHostPresent;
-                var headerHost = request.Headers["X-Forwarded-Host"].Split(',')[0].Trim();
+                var headerHost = request.Headers.TryGetValue("X-Forwarded-Host", out var forwardedHost)
+                    ? forwardedHost.Split(',')[0].Trim()
+                    : request.Headers.GetValueOrDefault("Host", "localhost");
                 var host = peer.Equals(TrustedProxy)
                     ? acceptedControlWithoutHostProof && headerHost == "public.example" ? null : headerHost
                     : rejectedControlWithoutHostExpectation ? null : "localhost";

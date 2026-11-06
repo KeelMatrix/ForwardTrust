@@ -16,4 +16,6 @@ Accepted expectations must correspond to original forwarded values in every asse
 
 Host tokens that fail framework normalization, including malformed IDN values, cannot supply an original-value witness. Such a token does not exclude a different valid effective-hop witness. Without a matching original, validation returns structured `MalformedScenario` before sending. Normalization does not establish host-policy acceptance or replace the causal controls.
 
-When both peers expose the same host, ordinary `Host`-header controls distinguish original forwarded-host application from a matching baseline; host-policy rejection cannot pass solely because the ignored original equals that baseline.
+Original forwarded-host application must be distinguishable from the accepted path's own replayed baseline with the forwarded host omitted. If they coincide, ordinary `Host` controls must move that same path's baseline while the original forwarded host retains its identity. An overwritten or indistinguishable baseline remains unproven; another peer's behavior cannot supply this proof.
+
+When an address counterfactual stops later scheme/host traversal, additional replayed pairs remove only earlier dependent prefixes. They must retain the original addresses, reproduce the full counterfactual identities, preserve non-target fields within the truncated pair, and keep the rejected identity unchanged. Unrelated rewrites and unstable responses remain failures; generated probes never require broader application trust.

@@ -28,7 +28,17 @@ public sealed class ForwardTrustVerifier
     }
 
     /// <summary>Verifies scenarios asynchronously without changing the caller's ASP.NET Core configuration.</summary>
-    /// <remarks>Host tokens that fail framework normalization, including malformed IDN values, cannot establish original-value correspondence. They do not exclude a different valid effective-hop witness. Without a matching original value, validation returns <see cref="ForwardTrustFailureKind.MalformedScenario"/> before sending; normalizable values still require middleware acceptance and causal proof.</remarks>
+    /// <remarks>
+    /// Host tokens that fail framework normalization cannot establish original-value correspondence,
+    /// but do not exclude a different valid effective-hop witness. Without a matching original,
+    /// validation returns <see cref="ForwardTrustFailureKind.MalformedScenario"/> before sending.
+    /// Original host application must be distinguishable from the accepted path's own baseline;
+    /// an indistinguishable baseline returns <see cref="ForwardTrustFailureKind.ForwardedValueNotProven"/>.
+    /// Address controls can account for dependent scheme/host traversal by replaying pairs with
+    /// only earlier dependent prefixes removed. These must retain the original address, reproduce
+    /// the full counterfactual identity, preserve non-target fields within the truncated pair,
+    /// and leave the rejected path unchanged. Application trust configuration is never altered.
+    /// </remarks>
     /// <param name="scenarios">The finite scenario sequence to validate and execute.</param>
     /// <param name="requestSender">The caller-owned seam that must execute every supplied request against the application pipeline.</param>
     /// <param name="cancellationToken">The cancellation token for the verification run.</param>
@@ -121,8 +131,7 @@ public sealed class ForwardTrustVerifier
             else
             {
                 failures.AddRange(CompareIdentity(controlRequest, controlAttempt.Identity!));
-                if (NeedsHostBaselineProbe(scenario)
-                    && string.Equals(observedIdentity.Host, controlAttempt.Identity!.Host, StringComparison.OrdinalIgnoreCase))
+                if (NeedsHostBaselineProbe(scenario))
                 {
                     failures.AddRange(await VerifyOriginalHostAsync(
                         scenario, primaryRequest, controlRequest, observedIdentity, controlAttempt.Identity!,
@@ -157,33 +166,42 @@ public sealed class ForwardTrustVerifier
         CancellationToken cancellationToken)
     {
         var acceptedIndex = scenario.HeaderExpectation == ForwardTrustHeaderExpectation.Accepted ? 0 : 1;
-        var rejectedIndex = 1 - acceptedIndex;
         var accepted = acceptedIndex == 0 ? primary : control;
-        var rejected = rejectedIndex == 0 ? primary : control;
+        var acceptedRequest = acceptedIndex == 0 ? primaryRequest : controlRequest;
         var acceptedExpected = acceptedIndex == 0 ? scenario.ExpectedIdentity : scenario.Control!.ExpectedIdentity;
         var alternate = CounterfactualValue("X-Forwarded-Host", acceptedExpected, scenario);
-        var primaryBaseline = CreateHostBaselineRequest(primaryRequest, alternate);
-        var controlBaseline = CreateHostBaselineRequest(controlRequest, alternate);
-        var observations = new List<ForwardedIdentity>(4);
-        foreach (var request in new[] { primaryBaseline, controlBaseline, primaryBaseline, controlBaseline })
+        var baselineHeaders = new Dictionary<string, string>(acceptedRequest.Headers, StringComparer.OrdinalIgnoreCase);
+        baselineHeaders.Remove("X-Forwarded-Host");
+        var baselineRequest = acceptedRequest with { Headers = baselineHeaders };
+        var observations = new List<ForwardedIdentity>(6);
+        foreach (var request in new[] { baselineRequest, baselineRequest })
         {
             var attempt = await SendAsync(request, requestSender, cancellationToken).ConfigureAwait(false);
             if (attempt.Failure is not null) { return [attempt.Failure]; }
             observations.Add(attempt.Identity!);
         }
         var failures = new List<ForwardTrustFailure>();
-        AddRepeatabilityFailure(scenario, ForwardTrustDimension.Host, "primary host-baseline request", observations[0], observations[2], failures);
-        AddRepeatabilityFailure(scenario, ForwardTrustDimension.Host, "control host-baseline request", observations[1], observations[3], failures);
-        if (!IdentitiesEqual(accepted, observations[acceptedIndex]))
+        AddRepeatabilityFailure(scenario, ForwardTrustDimension.Host, "accepted host-baseline request", observations[0], observations[1], failures);
+        if (failures.Count > 0 || !SameDimension(ForwardTrustDimension.Host, accepted, observations[0])) { return failures; }
+
+        // A coincident baseline needs a working control on this same path. A
+        // different peer cannot show whether application middleware overwrites Host.
+        var alternateBaseline = CreateHostBaselineRequest(baselineRequest, alternate);
+        var alternateOriginal = CreateHostBaselineRequest(acceptedRequest, alternate);
+        foreach (var request in new[] { alternateBaseline, alternateOriginal, alternateBaseline, alternateOriginal })
+        {
+            var attempt = await SendAsync(request, requestSender, cancellationToken).ConfigureAwait(false);
+            if (attempt.Failure is not null) { return [attempt.Failure]; }
+            observations.Add(attempt.Identity!);
+        }
+        AddRepeatabilityFailure(scenario, ForwardTrustDimension.Host, "accepted alternate host-baseline request", observations[2], observations[4], failures);
+        AddRepeatabilityFailure(scenario, ForwardTrustDimension.Host, "accepted original with alternate ordinary Host", observations[3], observations[5], failures);
+        if (!IdentitiesEqual(accepted, observations[3])
+            || !MatchesCounterfactual(ForwardTrustDimension.Host, observations[2], alternate)
+            || !NonTargetDimensionsEqual(ForwardTrustDimension.Host, observations[0], observations[2]))
         {
             failures.Add(new ForwardTrustFailure(scenario.Name, ForwardTrustFailureKind.ForwardedValueNotProven,
-                ForwardTrustDimension.Host, "Changing the ordinary Host header changed the accepted original identity. Application of the original forwarded host is not proven; check host policy and middleware placement."));
-        }
-        if (!MatchesCounterfactual(ForwardTrustDimension.Host, observations[rejectedIndex], alternate)
-            || !NonTargetDimensionsEqual(ForwardTrustDimension.Host, rejected, observations[rejectedIndex]))
-        {
-            failures.Add(new ForwardTrustFailure(scenario.Name, ForwardTrustFailureKind.RequestApplicationNotProven,
-                ForwardTrustDimension.Host, "The rejected path did not reproducibly expose the alternate ordinary Host header while preserving other identity fields. Original host application cannot be distinguished from the baseline."));
+                ForwardTrustDimension.Host, "Application of the original forwarded host cannot be distinguished from the accepted path's own baseline. Check host policy and middleware placement; an overwritten ordinary Host control cannot prove original acceptance."));
         }
         return failures;
     }
@@ -218,11 +236,93 @@ public sealed class ForwardTrustVerifier
         AddRepeatabilityFailure(scenario, dimension.Dimension, "primary counterfactual request", observations[0], observations[4], failures);
         AddRepeatabilityFailure(scenario, dimension.Dimension, "control counterfactual request", observations[1], observations[5], failures);
         if (failures.Count > 0) { return new DimensionAttempt(failures, false); }
-        AddCausalFailures(scenario, dimension.Dimension, counterfactualValue, primary, observations[0], control, observations[1], failures);
+        var accepted = scenario.HeaderExpectation == ForwardTrustHeaderExpectation.Accepted ? primary : control;
+        var acceptedCounterfactual = scenario.HeaderExpectation == ForwardTrustHeaderExpectation.Accepted ? observations[0] : observations[1];
         var rejected = scenario.HeaderExpectation == ForwardTrustHeaderExpectation.Rejected ? primary : control;
         var rejectedCounterfactual = scenario.HeaderExpectation == ForwardTrustHeaderExpectation.Rejected ? observations[0] : observations[1];
+        if (dimension.Dimension == ForwardTrustDimension.ClientAddress
+            && MatchesCounterfactual(dimension.Dimension, acceptedCounterfactual, counterfactualValue)
+            && !SameDimension(dimension.Dimension, accepted, acceptedCounterfactual)
+            && !NonTargetDimensionsEqual(dimension.Dimension, accepted, acceptedCounterfactual)
+            && IdentitiesEqual(rejected, rejectedCounterfactual))
+        {
+            var depth = ForwardedHeaderValues.Parse(primaryRequest.Headers[dimension.HeaderName]).Count(value => value.Offset >= token.Offset);
+            var truncatedPrimary = TruncateDependentPrefixes(primaryRequest, depth);
+            var truncatedControl = TruncateDependentPrefixes(controlRequest, depth);
+            if (!HeadersEqual(primaryRequest.Headers, truncatedPrimary.Headers))
+            {
+                return await VerifyAddressDependencyAsync(scenario, token, counterfactualValue,
+                    truncatedPrimary, truncatedControl, primary, control, observations[0], observations[1],
+                    requestSender, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        AddCausalFailures(scenario, dimension.Dimension, counterfactualValue, primary, observations[0], control, observations[1], failures);
         return new DimensionAttempt(failures, IdentitiesEqual(rejected, rejectedCounterfactual));
     }
+
+    private async Task<DimensionAttempt> VerifyAddressDependencyAsync(
+        ForwardTrustScenario scenario, ForwardedHeaderValues.Token token, string counterfactualValue,
+        RequestSpec primaryRequest, RequestSpec controlRequest,
+        ForwardedIdentity primary, ForwardedIdentity control,
+        ForwardedIdentity primaryCounterfactual, ForwardedIdentity controlCounterfactual,
+        ForwardTrustRequestSender requestSender, CancellationToken cancellationToken)
+    {
+        var primaryProbe = CreateCounterfactualRequest(primaryRequest, "X-Forwarded-For", counterfactualValue, token);
+        var controlProbe = CreateCounterfactualRequest(controlRequest, "X-Forwarded-For", counterfactualValue, token);
+        var observations = new List<ForwardedIdentity>(8);
+        foreach (var request in new[] { primaryRequest, controlRequest, primaryProbe, controlProbe,
+            primaryRequest, controlRequest, primaryProbe, controlProbe })
+        {
+            var attempt = await SendAsync(request, requestSender, cancellationToken).ConfigureAwait(false);
+            if (attempt.Failure is not null) { return new DimensionAttempt([attempt.Failure], false); }
+            observations.Add(attempt.Identity!);
+        }
+        var failures = new List<ForwardTrustFailure>();
+        for (var index = 0; index < 4; index++)
+        {
+            AddRepeatabilityFailure(scenario, ForwardTrustDimension.ClientAddress,
+                "address-dependency request", observations[index], observations[index + 4], failures);
+        }
+        if (failures.Count > 0) { return new DimensionAttempt(failures, false); }
+        var rejectedIndex = scenario.HeaderExpectation == ForwardTrustHeaderExpectation.Rejected ? 0 : 1;
+        var rejected = rejectedIndex == 0 ? primary : control;
+        // Removing only earlier dependent hops must leave the original address
+        // intact. Both routes to the stopped counterfactual must give the same
+        // full identity; otherwise the drift has not been explained by traversal.
+        if (!SameDimension(ForwardTrustDimension.ClientAddress, primary, observations[0])
+            || !SameDimension(ForwardTrustDimension.ClientAddress, control, observations[1])
+            || !IdentitiesEqual(rejected, observations[rejectedIndex])
+            || !IdentitiesEqual(primaryCounterfactual, observations[2])
+            || !IdentitiesEqual(controlCounterfactual, observations[3]))
+        {
+            failures.Add(new ForwardTrustFailure(scenario.Name, ForwardTrustFailureKind.ForwardedValueNotProven,
+                ForwardTrustDimension.ClientAddress, "The non-target identity field change was not reproduced by removing only earlier dependent hops. Address-dependent trust traversal is not proven."));
+        }
+        AddCausalFailures(scenario, ForwardTrustDimension.ClientAddress, counterfactualValue,
+            observations[0], observations[2], observations[1], observations[3], failures);
+        return new DimensionAttempt(failures,
+            IdentitiesEqual(rejected, observations[rejectedIndex])
+            && IdentitiesEqual(rejected, observations[rejectedIndex + 2]));
+    }
+
+    private static RequestSpec TruncateDependentPrefixes(RequestSpec request, int depth)
+    {
+        var headers = new Dictionary<string, string>(request.Headers, StringComparer.OrdinalIgnoreCase);
+        foreach (var name in new[] { "X-Forwarded-Proto", "X-Forwarded-Host" })
+        {
+            if (!headers.TryGetValue(name, out var value)) { continue; }
+            var tokens = ForwardedHeaderValues.Parse(value);
+            if (tokens.Count <= depth) { continue; }
+            var first = tokens[tokens.Count - depth];
+            var start = first.Offset;
+            if (start > 0 && value[start - 1] == '"') { start--; }
+            headers[name] = value[start..];
+        }
+        return request with { Headers = headers };
+    }
+
+    private static bool HeadersEqual(IReadOnlyDictionary<string, string> left, IReadOnlyDictionary<string, string> right) =>
+        left.Count == right.Count && left.All(header => right.TryGetValue(header.Key, out var value) && value == header.Value);
 
     private static void AddCausalFailures(
         ForwardTrustScenario scenario,
@@ -640,10 +740,7 @@ public sealed class ForwardTrustVerifier
 
     private static bool NeedsHostBaselineProbe(ForwardTrustScenario scenario)
     {
-        if (!GetAssertedDimensions(scenario).Any(static dimension => dimension.Dimension == ForwardTrustDimension.Host)) { return false; }
-        var accepted = scenario.HeaderExpectation == ForwardTrustHeaderExpectation.Accepted ? scenario.ExpectedIdentity : scenario.Control!.ExpectedIdentity;
-        var rejected = scenario.HeaderExpectation == ForwardTrustHeaderExpectation.Rejected ? scenario.ExpectedIdentity : scenario.Control!.ExpectedIdentity;
-        return rejected.Host is null || string.Equals(accepted.Host, rejected.Host, StringComparison.OrdinalIgnoreCase);
+        return GetAssertedDimensions(scenario).Any(static dimension => dimension.Dimension == ForwardTrustDimension.Host);
     }
 
     private static RequestSpec CreateHostBaselineRequest(RequestSpec request, string alternate)

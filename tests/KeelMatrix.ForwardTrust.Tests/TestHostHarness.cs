@@ -25,13 +25,14 @@ internal sealed class TestHostHarness : IAsyncDisposable
         Action<ForwardedHeadersOptions> configureOptions,
         CancellationToken cancellationToken = default)
     {
-        return await StartAsync(configureOptions, null, null, cancellationToken);
+        return await StartAsync(configureOptions, null, null, cancellationToken: cancellationToken);
     }
 
     public static async Task<TestHostHarness> StartAsync(
         Action<ForwardedHeadersOptions> configureOptions,
         Action<IServiceCollection>? configureServices,
         Action<IApplicationBuilder>? configurePipeline,
+        Action<IApplicationBuilder>? beforeForwarding = null,
         CancellationToken cancellationToken = default)
     {
         var host = new HostBuilder()
@@ -42,6 +43,7 @@ internal sealed class TestHostHarness : IAsyncDisposable
                 {
                     var options = new ForwardedHeadersOptions();
                     configureOptions(options);
+                    beforeForwarding?.Invoke(app);
                     app.UseForwardedHeaders(options);
                     configurePipeline?.Invoke(app);
                     app.Run(static context => context.Response.WriteAsync("probe", context.RequestAborted));
