@@ -15,6 +15,6 @@ public sealed class ForwardTrustControl
     /// <summary>Gets the simulated peer address for the opposite-trust control.</summary>
     public string ImmediatePeerAddress { get; }
 
-    /// <summary>Gets the identity expected from the opposite-trust control request.</summary>
+    /// <summary>Gets the identity expected from the opposite-trust control request. Observation metadata is ignored on expectations.</summary>
     public ForwardedIdentity ExpectedIdentity { get; }
 }

@@ -52,6 +52,21 @@ var untrusted = new ForwardTrustScenario(
 var trustedResult = await verifier.VerifyAsync([trusted], SendAsync(trustedHost.Server));
 var untrustedResult = await verifier.VerifyAsync([untrusted], SendAsync(trustedHost.Server));
 
+var coincident = new ForwardTrustScenario(
+    "coincident-address", trustedPeer, new ForwardedIdentity("http", IPAddress.Parse(trustedPeer)),
+    ForwardTrustHeaderExpectation.Accepted,
+    new Dictionary<string, string> { ["X-Forwarded-For"] = trustedPeer, ["X-Forwarded-Proto"] = "http" },
+    control: new ForwardTrustControl("10.0.0.20", new ForwardedIdentity("http", IPAddress.Parse("10.0.0.20"))));
+var coincidentResult = await verifier.VerifyAsync([coincident], SendAsync(trustedHost.Server));
+var observedSender = SendAsync(trustedHost.Server);
+var legacyResult = await verifier.VerifyAsync([coincident], async (request, cancellation) =>
+{
+    var identity = await observedSender(request, cancellation);
+    return new ForwardedIdentity(identity.Scheme, identity.ClientAddress, identity.Host);
+});
+var legacyUnproven = legacyResult.Failures.Any(failure => failure.Kind == ForwardTrustFailureKind.ForwardedValueNotProven
+    && failure.Dimension == ForwardTrustDimension.ClientAddress);
+
 var misconfigured = new ForwardTrustScenario(
     "unsafe-boundary",
     "10.0.0.20",
@@ -67,11 +82,13 @@ var misconfiguredResult = await verifier.VerifyAsync(
 
 Console.WriteLine($"trusted: {(trustedResult.Succeeded ? "PASS" : "FAIL")}");
 Console.WriteLine($"untrusted: {(untrustedResult.Succeeded ? "PASS" : "FAIL")}");
+Console.WriteLine($"coincident address with consumption: {(coincidentResult.Succeeded ? "PASS" : "FAIL")}");
+Console.WriteLine($"identity-only coincident address: {(legacyUnproven ? "unproven" : "UNEXPECTED RESULT")}");
 Console.WriteLine("sender: ASP.NET Core TestServer + ForwardedHeadersMiddleware");
 var trustFailure = misconfiguredResult.Failures.FirstOrDefault(failure => failure.Kind == ForwardTrustFailureKind.UntrustedHeaderAccepted);
 Console.WriteLine($"misconfigured boundary: {(misconfiguredResult.Succeeded ? "UNEXPECTED PASS" : trustFailure?.Kind.ToString() ?? misconfiguredResult.Failures[0].Kind.ToString())}");
 
-return trustedResult.Succeeded && untrustedResult.Succeeded && !misconfiguredResult.Succeeded ? 0 : 1;
+return trustedResult.Succeeded && untrustedResult.Succeeded && coincidentResult.Succeeded && legacyUnproven && !misconfiguredResult.Succeeded ? 0 : 1;
 
 static ForwardTrustRequestSender SendAsync(TestServer server) => async (request, cancellationToken) =>
 {
@@ -88,7 +105,8 @@ static ForwardTrustRequestSender SendAsync(TestServer server) => async (request,
     return new ForwardedIdentity(
         context.Request.Scheme,
         context.Connection.RemoteIpAddress ?? IPAddress.None,
-        context.Request.Host.ToString());
+        context.Request.Host.ToString()).WithForwardedForObservation(
+            context.Request.Headers.TryGetValue("X-Forwarded-For", out var remaining) ? remaining.ToString() : null);
 };
 
 static async Task<TestHostFixture> StartHostAsync(Action<ForwardedHeadersOptions> configureOptions)

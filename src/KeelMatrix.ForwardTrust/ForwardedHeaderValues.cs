@@ -15,12 +15,33 @@ internal static class ForwardedHeaderValues
         var offset = 0;
         foreach (var value in values)
         {
-            if (value.Length == 0) { continue; }
             var start = header.IndexOf(value, offset, StringComparison.Ordinal);
             tokens.Add(new Token(value, start, value.Length));
             offset = start + value.Length;
         }
         return tokens;
+    }
+
+    // Compare logical tokens using framework quote/serialization semantics, but
+    // never normalize endpoints or discard entries to infer a consumed count.
+    internal static Token? ConsumedBoundary(string original, ForwardedIdentity observed)
+    {
+        if (!observed.HasForwardedForObservation) { return null; }
+        var originalTokens = Parse(original);
+        var remainder = observed.RemainingForwardedFor;
+        if (remainder is not null && (string.IsNullOrWhiteSpace(remainder) || remainder.Any(char.IsControl))) { return null; }
+        var remainingTokens = remainder is null ? [] : Parse(remainder);
+        var boundary = remainingTokens.Count;
+        if (boundary >= originalTokens.Count) { return null; }
+        for (var index = 0; index < boundary; index++)
+        {
+            if (!string.Equals(originalTokens[index].Value, remainingTokens[index].Value, StringComparison.Ordinal)) { return null; }
+        }
+        for (var index = boundary; index < originalTokens.Count; index++)
+        {
+            if (!IPEndPoint.TryParse(originalTokens[index].Value, out _)) { return null; }
+        }
+        return Matches(ForwardTrustDimension.ClientAddress, observed, originalTokens[boundary]) ? originalTokens[boundary] : null;
     }
 
     internal static bool Matches(ForwardTrustDimension dimension, ForwardedIdentity identity, Token token) => dimension switch

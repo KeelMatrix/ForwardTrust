@@ -62,7 +62,7 @@ public sealed class ForwardTrustOriginalValueTests
         });
         Assert.True(context.Request.Headers.ContainsKey(header.Replace("Forwarded", "Original", StringComparison.Ordinal)));
         Assert.Single(context.Request.Headers.GetCommaSeparatedValues(header));
-        var result = await new ForwardTrustVerifier().VerifyAsync([Pair(header, value, identity, false)], TestHostHarness.CreateSender(host.Server));
+        var result = await new ForwardTrustVerifier().VerifyAsync([Pair(header, value, identity, false)], TestHostHarness.CreateSender(host.Server, captureForwardedFor: false));
         Assert.Equal(header != "X-Forwarded-For", result.Succeeded);
         if (header == "X-Forwarded-For")
         {

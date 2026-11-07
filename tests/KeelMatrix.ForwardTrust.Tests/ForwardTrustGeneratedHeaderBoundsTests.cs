@@ -18,7 +18,7 @@ public sealed class ForwardTrustGeneratedHeaderBoundsTests
     [InlineData(false, true)]
     [InlineData(true, false)]
     [InlineData(true, true)]
-    public async Task UnassertedHostCommitWitnessIsBoundedBeforeSending(bool existingHost, bool rejectedPrimary)
+    public async Task UnassertedHostDoesNotGenerateOrdinaryHostControls(bool existingHost, bool rejectedPrimary)
     {
         var headers = new Dictionary<string, string> { ["X-Forwarded-For"] = TrustedPeer.ToString(), ["X-Forwarded-Host"] = "localhost" };
         if (existingHost) { headers["Host"] = "localhost"; }
@@ -34,9 +34,10 @@ public sealed class ForwardTrustGeneratedHeaderBoundsTests
         {
             calls++;
             Assert.InRange(request.Headers.Count, 0, 64);
+            Assert.Equal(existingHost, request.Headers.ContainsKey("Host"));
             return ValueTask.FromResult(new ForwardedIdentity("http", request.ImmediatePeerAddress, "localhost"));
         });
-        Assert.Equal(existingHost, calls > 0);
+        Assert.True(calls > 0);
     }
 
     [Theory]
@@ -64,8 +65,8 @@ public sealed class ForwardTrustGeneratedHeaderBoundsTests
             headers[name] = new string('a', Math.Min(MaxHeaderValueLength, target - CountHeaderBytes(headers) - name.Length));
         }
         Assert.Equal(target, CountHeaderBytes(headers));
-        var accepted = new ForwardedIdentity("http", TrustedPeer);
-        var rejected = new ForwardedIdentity("http", UntrustedPeer);
+        var accepted = new ForwardedIdentity("http", TrustedPeer, originalHost);
+        var rejected = new ForwardedIdentity("http", UntrustedPeer, ordinaryHost);
         var scenario = new ForwardTrustScenario("ordinary-host-aggregate", (rejectedPrimary ? UntrustedPeer : TrustedPeer).ToString(),
             rejectedPrimary ? rejected : accepted,
             rejectedPrimary ? ForwardTrustHeaderExpectation.Rejected : ForwardTrustHeaderExpectation.Accepted, headers,
@@ -175,15 +176,7 @@ public sealed class ForwardTrustGeneratedHeaderBoundsTests
             RecordingSender(requests));
 
         requests = ForwardedRequests(requests, headerName);
-        Assert.Equal(8, requests.Count);
-        Assert.Equal(expectedGeneratedValue, requests[2].Headers[headerName]);
-        Assert.Equal(expectedGeneratedValue, requests[3].Headers[headerName]);
-        Assert.Equal(originalValue, requests[0].Headers[headerName]);
-        Assert.Equal(originalValue, requests[1].Headers[headerName]);
-        Assert.Equal(originalValue, requests[4].Headers[headerName]);
-        Assert.Equal(originalValue, requests[5].Headers[headerName]);
-        Assert.Equal(expectedGeneratedValue, requests[6].Headers[headerName]);
-        Assert.Equal(expectedGeneratedValue, requests[7].Headers[headerName]);
+        AssertOriginalAndChangedRequests(requests, headerName, originalValue, expectedGeneratedValue);
     }
 
     [Theory]
@@ -238,12 +231,8 @@ public sealed class ForwardTrustGeneratedHeaderBoundsTests
             RecordingSender(requests));
 
         requests = ForwardedRequests(requests, headerName);
-        Assert.Equal(8, requests.Count);
         Assert.True(counterfactualValue.Length < firstTokenLength);
-        Assert.Equal(expectedGeneratedValue, requests[2].Headers[headerName]);
-        Assert.Equal(expectedGeneratedValue, requests[3].Headers[headerName]);
-        Assert.Equal(originalValue, requests[0].Headers[headerName]);
-        Assert.Equal(originalValue, requests[1].Headers[headerName]);
+        AssertOriginalAndChangedRequests(requests, headerName, originalValue, expectedGeneratedValue);
     }
 
     [Theory]
@@ -262,10 +251,7 @@ public sealed class ForwardTrustGeneratedHeaderBoundsTests
             RecordingSender(requests));
 
         requests = ForwardedRequests(requests, headerName);
-        Assert.Equal(8, requests.Count);
-        Assert.Equal(counterfactualValue, requests[2].Headers[headerName]);
-        Assert.Equal(counterfactualValue, requests[3].Headers[headerName]);
-        Assert.Equal(original, requests[0].Headers[headerName]);
+        AssertOriginalAndChangedRequests(requests, headerName, original, counterfactualValue);
     }
 
     public static IEnumerable<object[]> HeaderCasesAsMemberData()
@@ -352,6 +338,16 @@ public sealed class ForwardTrustGeneratedHeaderBoundsTests
             Assert.InRange(CountHeaderBytes(request.Headers), 0, MaxAggregateHeaderBytes);
         });
         return requests.Where(request => request.Headers.ContainsKey(headerName) && !request.Headers.ContainsKey("Host")).ToList();
+    }
+
+    private static void AssertOriginalAndChangedRequests(List<ForwardTrustRequest> requests, string headerName, string original, string changed)
+    {
+        Assert.All(requests, request => Assert.Contains(request.Headers[headerName], new[] { original, changed }));
+        foreach (var peer in new[] { TrustedPeer, UntrustedPeer })
+        {
+            Assert.True(requests.Count(request => request.ImmediatePeerAddress.Equals(peer) && request.Headers[headerName] == original) >= 2);
+            Assert.Equal(2, requests.Count(request => request.ImmediatePeerAddress.Equals(peer) && request.Headers[headerName] == changed));
+        }
     }
 
     private static string CounterfactualValue(string headerName, string? counterfactualHost)

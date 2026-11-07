@@ -6,6 +6,42 @@ namespace KeelMatrix.ForwardTrust.Tests;
 public sealed class ForwardedIdentityTests
 {
     [Fact]
+    public void ForwardedForObservationDistinguishesAbsenceFromUnavailableWithoutChangingTheOriginal()
+    {
+        var address = new IPAddress(IPAddress.Parse("fe80::25").GetAddressBytes(), 3);
+        var original = new ForwardedIdentity("http", address);
+        var absent = original.WithForwardedForObservation(null);
+        const string remainder = "\"10.0.0.11:1111\", [2001:db8::12]:2222";
+        var partial = original.WithForwardedForObservation(remainder);
+        address.ScopeId = 4;
+        partial.ClientAddress.ScopeId = 5;
+        Assert.False(original.HasForwardedForObservation);
+        Assert.Null(original.RemainingForwardedFor);
+        Assert.True(absent.HasForwardedForObservation);
+        Assert.Null(absent.RemainingForwardedFor);
+        Assert.Equal(remainder, partial.RemainingForwardedFor);
+        Assert.Equal(3, partial.ClientAddress.ScopeId);
+        Assert.Equal(3, absent.ClientAddress.ScopeId);
+        Assert.Equal(remainder, (partial with { }).RemainingForwardedFor);
+    }
+
+    [Theory]
+    [InlineData(16383)]
+    [InlineData(16384)]
+    [InlineData(16385)]
+    public void ForwardedForObservationHasAFiniteBoundWithoutEchoingItsValue(int length)
+    {
+        var identity = new ForwardedIdentity("http", IPAddress.Loopback);
+        var value = new string('x', length);
+        if (length <= 16384) { Assert.Equal(value, identity.WithForwardedForObservation(value).RemainingForwardedFor); }
+        else
+        {
+            var error = Assert.Throws<ArgumentException>(() => identity.WithForwardedForObservation(value));
+            Assert.DoesNotContain(value, error.Message, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public void ClientAddressSnapshotsConstructorInputAndReturnsDefensiveCopies()
     {
         var source = new IPAddress(IPAddress.Parse("fe80::25").GetAddressBytes(), 3);

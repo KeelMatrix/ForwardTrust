@@ -57,7 +57,8 @@ internal sealed class TestHostHarness : IAsyncDisposable
     public static ForwardTrustRequestSender CreateSender(
         TestServer server,
         Action<HttpContext>? afterSend = null,
-        Action<HttpContext, ForwardTrustRequest>? beforePipeline = null)
+        Action<HttpContext, ForwardTrustRequest>? beforePipeline = null,
+        bool captureForwardedFor = true)
     {
         return async (request, cancellationToken) =>
         {
@@ -74,10 +75,12 @@ internal sealed class TestHostHarness : IAsyncDisposable
             }, cancellationToken);
             afterSend?.Invoke(context);
 
-            return new ForwardedIdentity(
+            var identity = new ForwardedIdentity(
                 context.Request.Scheme,
                 context.Connection.RemoteIpAddress ?? IPAddress.None,
                 context.Request.Host.ToString());
+            return captureForwardedFor ? identity.WithForwardedForObservation(
+                context.Request.Headers.TryGetValue("X-Forwarded-For", out var remaining) ? remaining.ToString() : null) : identity;
         };
     }
 

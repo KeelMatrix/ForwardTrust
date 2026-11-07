@@ -64,7 +64,8 @@ public sealed class ForwardTrustOriginalCommitTests
         var result = await new ForwardTrustVerifier().VerifyAsync([scenario], async (request, cancellation) =>
         {
             var identity = await sender(request, cancellation);
-            return effect == "host-unavailable" ? new ForwardedIdentity(identity.Scheme, identity.ClientAddress) : identity;
+            // This class of ambiguity belongs to legacy identity-only senders.
+            return new ForwardedIdentity(identity.Scheme, identity.ClientAddress, effect == "host-unavailable" ? null : identity.Host);
         });
         Assert.False(result.Succeeded);
         Assert.Contains(result.Failures, failure => failure.Kind is ForwardTrustFailureKind.ForwardedValueNotProven

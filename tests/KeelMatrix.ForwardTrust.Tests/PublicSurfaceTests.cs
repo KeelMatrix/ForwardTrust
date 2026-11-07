@@ -24,4 +24,18 @@ public sealed class PublicSurfaceTests
         Assert.Contains(nameof(ForwardTrustFailure), publicTypes);
         Assert.DoesNotContain(assembly.GetReferencedAssemblies(), reference => reference.Name == "Microsoft.AspNetCore.TestHost");
     }
+
+    [Fact]
+    public void ObservationIsAnImmutableOptionalCopyOnTheExistingIdentitySeam()
+    {
+        var identity = new ForwardedIdentity("http", IPAddress.Loopback);
+        Assert.False(identity.HasForwardedForObservation);
+        Assert.True(identity.WithForwardedForObservation(null).HasForwardedForObservation);
+        foreach (var name in new[] { nameof(ForwardedIdentity.HasForwardedForObservation), nameof(ForwardedIdentity.RemainingForwardedFor) })
+        {
+            var property = typeof(ForwardedIdentity).GetProperty(name)!;
+            Assert.True(property.CanRead);
+            Assert.False(property.SetMethod?.IsPublic ?? false);
+        }
+    }
 }

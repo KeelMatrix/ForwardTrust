@@ -14,7 +14,7 @@ All notable changes to KeelMatrix.ForwardTrust are documented here.
 
 ### Fixed
 
-- Address probes require evidence that the original forwarding committed. A changed address can stop trust traversal before a later middleware abort; that partial commit no longer proves the original request. Coincident addresses without an observable original effect remain unproven, while observable original scheme or Host effects can prove them without a host assertion.
+- Address probes use optional immutable remaining-XFF observations from the original request to establish suffix consumption at the effective causal hop. Identity-only senders retain noncoincident address proof against a baseline omitting only XFF; coincident addresses remain unproven without consumption evidence. Independent scheme, Host and changed-request commits cannot supply original address proof; Host assertions remain optional.
 
 - Generated counterfactual requests are checked against the same per-value and aggregate UTF-8 header limits as the original scenario. An over-limit generated request returns `MalformedScenario` before any sender call.
 

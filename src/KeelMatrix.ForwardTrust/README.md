@@ -102,7 +102,8 @@ public sealed class ForwardTrustQuickStartTests
             return new ForwardedIdentity(
                 context.Request.Scheme,
                 context.Connection.RemoteIpAddress ?? IPAddress.None,
-                context.Request.Host.ToString());
+                context.Request.Host.ToString()).WithForwardedForObservation(
+                    context.Request.Headers.TryGetValue("X-Forwarded-For", out var remaining) ? remaining.ToString() : null);
         };
     }
 }
@@ -114,7 +115,11 @@ Accepted expectations, on either side, must match original forwarded values in e
 
 Host correspondence uses framework normalization. A token that fails normalization, including malformed punycode or Unicode, cannot supply an original-value witness and does not exclude a different valid effective-hop witness. Without a matching original value, verification returns `MalformedScenario` before sending. Normalization alone does not prove middleware acceptance; the original host and its counterfactual must still satisfy the application's host policy and causal controls.
 
-Original address application is checked separately from address counterfactuals against a replayed baseline on the accepted peer, with `X-Forwarded-For`, `X-Forwarded-Proto` and `X-Forwarded-Host` omitted. If the address coincides with that baseline, an observable original scheme or forwarded-host effect must establish the original commit with all original forwarded values retained. The observed Host can supply this evidence without an expected-host assertion. If no original effect is observable, verification returns `ForwardedValueNotProven`, even when the middleware actually consumed the values. A changed address can stop trust traversal before a later host, scheme or prefix abort and commit partially; that counterfactual commit cannot prove the original request.
+The `ForwardTrustHeaderExpectation.Accepted` XML is the source of truth for original-value application. For address proof, the sender above attaches the actual remaining conventional XFF with `WithForwardedForObservation`. Capture it at the same probe point as the identity for each exact request. Passing null means capture occurred and the header was absent; omit the call when capture is unavailable. The immutable observation is limited to 16,384 characters and is ignored on expected identities.
+
+The unchanged original and replay must show a strict valid endpoint suffix removed from XFF, leaving exactly the untouched logical prefix. Framework comma/quote semantics apply; residual endpoint tokens retain ports, representation and order. The observed boundary address must match the expected address, and the causal trial must use that same hop index. A malformed earlier XFF token may remain in the prefix. Supplied inconsistent evidence fails closed, and the rejected original must retain its chain. Exact alternate-value, opposite-peer, replay and dependency controls remain required.
+
+The existing identity-only constructor remains usable: without capture, address proof requires an original address effect against a replayed accepted baseline omitting only XFF and retaining every other original header. Coincident addresses remain `ForwardedValueNotProven`, even if middleware consumed the values. Independent scheme or Host stages and changed-request partial commits cannot prove original address application. Host assertions remain optional. Custom header names, unavailable post-pipeline headers, arbitrary XFF removal/reconstruction and later address rewrites cannot silently inherit this bounded proof; see the compatibility note for limits.
 
 Original host application is compared with the accepted path's own replayed baseline with `X-Forwarded-Host` omitted, regardless of the other peer's host. If they coincide, ordinary `Host` controls must move that same path's baseline to the alternate host while leaving the identity with the original forwarded host unchanged. If middleware overwrites the baseline control, the original remains `ForwardedValueNotProven`, even when it was actually consumed. Every possible generated control, including an added or replaced `Host` header, is checked against the same header bounds before any request.
 

@@ -114,7 +114,7 @@ public sealed class ForwardTrustDependentChainTests
     [InlineData(true, false, true)]
     [InlineData(true, true, false)]
     [InlineData(true, true, true)]
-    public async Task RepeatedAddressRequiresAnObservableOriginalEffect(bool symmetry, bool rejectedPrimary, bool assertHost)
+    public async Task RepeatedAddressRequiresOriginalConsumptionEvidence(bool symmetry, bool rejectedPrimary, bool assertHost)
     {
         var trusted = IPAddress.Parse("10.0.0.10");
         var untrusted = IPAddress.Parse("10.0.0.20");
@@ -151,12 +151,15 @@ public sealed class ForwardTrustDependentChainTests
             });
             Assert.True(original.Request.Headers.ContainsKey("X-Original-For"));
             Assert.Equal(limit == 1 ? 1 : 0, original.Request.Headers.GetCommaSeparatedValues("X-Forwarded-For").Length);
-            var result = await new ForwardTrustVerifier().VerifyAsync([scenario], TestHostHarness.CreateSender(host.Server));
-            Assert.Equal(assertHost || limit != 1, result.Succeeded);
-            if (!result.Succeeded)
+            foreach (var capture in new[] { false, true })
             {
-                Assert.Contains(result.Failures, f => f.Kind == ForwardTrustFailureKind.ForwardedValueNotProven
-                    && f.Dimension == ForwardTrustDimension.ClientAddress);
+                var result = await new ForwardTrustVerifier().VerifyAsync([scenario], TestHostHarness.CreateSender(host.Server, captureForwardedFor: capture));
+                Assert.Equal(capture, result.Succeeded);
+                if (!capture)
+                {
+                    Assert.Contains(result.Failures, f => f.Kind == ForwardTrustFailureKind.ForwardedValueNotProven
+                        && f.Dimension == ForwardTrustDimension.ClientAddress);
+                }
             }
         }
     }

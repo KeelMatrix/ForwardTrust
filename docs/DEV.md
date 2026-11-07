@@ -21,7 +21,7 @@ The full package gate runs the same restore/build/test/format path, packs the ex
 pwsh -NoProfile -File scripts/package-gate.ps1
 ```
 
-The package consumer intentionally uses `PackageReference`, not `ProjectReference`. It prints trusted and untrusted passes, the explicit executed-request sender contract, and the structured `UntrustedHeaderAccepted` failure from an unsafe boundary.
+The package consumer intentionally uses `PackageReference`, not `ProjectReference`. It captures remaining XFF alongside the identity and prints trusted, untrusted and coincident-address passes, an identity-only coincident-address failure, the executed-request sender contract, and the structured `UntrustedHeaderAccepted` failure from an unsafe boundary.
 
 The package gate executes the packed README installation commands in a pristine `net8.0` xUnit project with an isolated cache and package-source mapping, then executes its published test for trusted and untrusted scenarios.
 

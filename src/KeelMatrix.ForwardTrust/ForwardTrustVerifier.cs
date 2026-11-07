@@ -34,11 +34,11 @@ public sealed class ForwardTrustVerifier
     /// validation returns <see cref="ForwardTrustFailureKind.MalformedScenario"/> before sending.
     /// Original host application must be distinguishable from the accepted path's own baseline;
     /// an indistinguishable baseline returns <see cref="ForwardTrustFailureKind.ForwardedValueNotProven"/>.
-    /// Original address application is checked independently of address counterfactuals against a
-    /// replayed accepted-path baseline with the conventional forwarded identity headers omitted.
-    /// A coincident address needs an observable original scheme or forwarded-host effect on that
-    /// same path, with all original forwarded values retained; otherwise it remains unproven.
-    /// The observed host can supply this evidence without an expected-host assertion.
+    /// Original address application uses repeatable remaining-X-Forwarded-For evidence from the
+    /// unchanged original, binding its strict consumed suffix to the effective causal hop index.
+    /// Without capture, only an address effect against an accepted baseline omitting X-Forwarded-For
+    /// alone can prove application; coincident results remain unproven. A separate scheme, Host or
+    /// changed-request commit is insufficient. See <see cref="ForwardTrustHeaderExpectation.Accepted"/>.
     /// Address controls can account for dependent scheme/host traversal by replaying pairs with
     /// only earlier dependent prefixes removed. These must retain the original address, reproduce
     /// the full counterfactual identity, preserve non-target fields within the truncated pair,
@@ -142,17 +142,22 @@ public sealed class ForwardTrustVerifier
                         scenario, primaryRequest, controlRequest, observedIdentity, controlAttempt.Identity!,
                         requestSender, cancellationToken).ConfigureAwait(false));
                 }
+                ForwardedHeaderValues.Token? addressBoundary = null;
                 if (dimensions.Any(static dimension => dimension.Dimension == ForwardTrustDimension.ClientAddress))
                 {
-                    failures.AddRange(await VerifyOriginalAddressAsync(
+                    var addressProof = await VerifyOriginalAddressAsync(
                         scenario, primaryRequest, controlRequest, observedIdentity, controlAttempt.Identity!,
-                        requestSender, cancellationToken).ConfigureAwait(false));
+                        requestSender, cancellationToken).ConfigureAwait(false);
+                    failures.AddRange(addressProof.Failures);
+                    addressBoundary = addressProof.Boundary;
                 }
                 foreach (var dimension in dimensions)
                 {
                     var lastAttempt = new List<ForwardTrustFailure>();
                     foreach (var token in OriginalValueCandidates(scenario, dimension))
                     {
+                        if (dimension.Dimension == ForwardTrustDimension.ClientAddress
+                            && addressBoundary is not null && token.Offset != addressBoundary.Offset) { continue; }
                         var attempt = await VerifyDimensionAtHopAsync(
                             scenario, dimension, token, primaryRequest, controlRequest,
                             observedIdentity, controlAttempt.Identity!, requestSender, cancellationToken).ConfigureAwait(false);
@@ -167,49 +172,63 @@ public sealed class ForwardTrustVerifier
         return new ForwardTrustScenarioResult(scenario.Name, failures.Count == 0, observedIdentity, failures);
     }
 
-    private async Task<List<ForwardTrustFailure>> VerifyOriginalAddressAsync(
+    private async Task<AddressProof> VerifyOriginalAddressAsync(
         ForwardTrustScenario scenario, RequestSpec primaryRequest, RequestSpec controlRequest,
         ForwardedIdentity primary, ForwardedIdentity control,
         ForwardTrustRequestSender requestSender, CancellationToken cancellationToken)
     {
         var acceptedRequest = scenario.HeaderExpectation == ForwardTrustHeaderExpectation.Accepted ? primaryRequest : controlRequest;
+        var rejectedRequest = scenario.HeaderExpectation == ForwardTrustHeaderExpectation.Rejected ? primaryRequest : controlRequest;
         var accepted = scenario.HeaderExpectation == ForwardTrustHeaderExpectation.Accepted ? primary : control;
-        var baselineHeaders = new Dictionary<string, string>(acceptedRequest.Headers, StringComparer.OrdinalIgnoreCase);
-        foreach (var name in new[] { "X-Forwarded-For", "X-Forwarded-Proto", "X-Forwarded-Host" })
+        var rejected = scenario.HeaderExpectation == ForwardTrustHeaderExpectation.Rejected ? primary : control;
+        var original = scenario.Headers["X-Forwarded-For"];
+        var failures = new List<ForwardTrustFailure>();
+        var acceptedReplay = await SendAsync(acceptedRequest, requestSender, cancellationToken).ConfigureAwait(false);
+        if (acceptedReplay.Failure is not null) { return new([acceptedReplay.Failure], null); }
+        var rejectedReplay = await SendAsync(rejectedRequest, requestSender, cancellationToken).ConfigureAwait(false);
+        if (rejectedReplay.Failure is not null) { return new([rejectedReplay.Failure], null); }
+        AddRepeatabilityFailure(scenario, ForwardTrustDimension.ClientAddress, "accepted original request", accepted, acceptedReplay.Identity!, failures);
+        AddRepeatabilityFailure(scenario, ForwardTrustDimension.ClientAddress, "rejected original request", rejected, rejectedReplay.Identity!, failures);
+        if (failures.Count > 0) { return new(failures, null); }
+        if (rejected.HasForwardedForObservation && !IsUnconsumedOriginal(original, rejected))
         {
-            baselineHeaders.Remove(name);
+            failures.Add(new ForwardTrustFailure(scenario.Name, ForwardTrustFailureKind.UntrustedHeaderAccepted,
+                ForwardTrustDimension.ClientAddress, "The rejected original request did not retain the original forwarded-address chain. Check trusted proxy/network configuration and the probe capture point."));
         }
+        if (accepted.HasForwardedForObservation)
+        {
+            var boundary = ForwardedHeaderValues.ConsumedBoundary(original, accepted);
+            if (boundary is null)
+            {
+                failures.Add(OriginalAddressNotProven(scenario));
+            }
+            return new(failures, boundary);
+        }
+        var baselineHeaders = new Dictionary<string, string>(acceptedRequest.Headers, StringComparer.OrdinalIgnoreCase);
+        baselineHeaders.Remove("X-Forwarded-For");
         var baselineRequest = acceptedRequest with { Headers = baselineHeaders };
         var baseline = await SendAsync(baselineRequest, requestSender, cancellationToken).ConfigureAwait(false);
-        if (baseline.Failure is not null) { return [baseline.Failure]; }
+        if (baseline.Failure is not null) { return new([baseline.Failure], null); }
         var replay = await SendAsync(baselineRequest, requestSender, cancellationToken).ConfigureAwait(false);
-        if (replay.Failure is not null) { return [replay.Failure]; }
-        var failures = new List<ForwardTrustFailure>();
-        AddRepeatabilityFailure(scenario, ForwardTrustDimension.ClientAddress, "accepted forwarding-baseline request",
+        if (replay.Failure is not null) { return new([replay.Failure], null); }
+        AddRepeatabilityFailure(scenario, ForwardTrustDimension.ClientAddress, "accepted address-baseline request",
             baseline.Identity!, replay.Identity!, failures);
-        if (failures.Count > 0 || !SameDimension(ForwardTrustDimension.ClientAddress, accepted, baseline.Identity!)) { return failures; }
-
-        // An address mutation can stop trust traversal before a later whole-request
-        // abort. Its successful partial commit says nothing about the original.
-        // With a coincident address, require another original effect from the same
-        // commit, keeping every original forwarded value in the witness request.
-        if (scenario.Headers.TryGetValue("X-Forwarded-Proto", out var proto)
-            && ForwardedHeaderValues.Parse(proto).Any(token => ForwardedHeaderValues.Matches(ForwardTrustDimension.Scheme, accepted, token))
-            && !SameDimension(ForwardTrustDimension.Scheme, accepted, baseline.Identity!))
+        if (SameDimension(ForwardTrustDimension.ClientAddress, accepted, baseline.Identity!))
         {
-            return failures;
+            failures.Add(OriginalAddressNotProven(scenario));
         }
-        if (accepted.Host is not null
-            && scenario.Headers.TryGetValue("X-Forwarded-Host", out var host)
-            && ForwardedHeaderValues.Parse(host).Any(token => ForwardedHeaderValues.Matches(ForwardTrustDimension.Host, accepted, token)))
-        {
-            return await VerifyOriginalHostAsync(scenario, primaryRequest, controlRequest, primary, control,
-                requestSender, cancellationToken).ConfigureAwait(false);
-        }
-        failures.Add(new ForwardTrustFailure(scenario.Name, ForwardTrustFailureKind.ForwardedValueNotProven,
-            ForwardTrustDimension.ClientAddress, "Application of the original forwarded address cannot be distinguished from the accepted path's own baseline. A changed address can stop trust traversal before an original-request abort; a counterfactual commit alone cannot prove original acceptance."));
-        return failures;
+        return new(failures, null);
     }
+
+    private static ForwardTrustFailure OriginalAddressNotProven(ForwardTrustScenario scenario) => new(
+        scenario.Name, ForwardTrustFailureKind.ForwardedValueNotProven, ForwardTrustDimension.ClientAddress,
+        "Application of the original forwarded address is not proven. Supply repeatable remaining X-Forwarded-For evidence at the identity probe point, or an original address effect against the accepted path's address-only baseline. A scheme, Host or changed-request commit cannot prove original address application.");
+
+    private static bool IsUnconsumedOriginal(string original, ForwardedIdentity observed) =>
+        observed.RemainingForwardedFor is not null
+        && !observed.RemainingForwardedFor.Any(char.IsControl)
+        && ForwardedHeaderValues.Parse(original).Select(static token => token.Value)
+            .SequenceEqual(ForwardedHeaderValues.Parse(observed.RemainingForwardedFor).Select(static token => token.Value), StringComparer.Ordinal);
 
     private async Task<List<ForwardTrustFailure>> VerifyOriginalHostAsync(
         ForwardTrustScenario scenario,
@@ -444,7 +463,10 @@ public sealed class ForwardTrustVerifier
         ForwardedIdentity replay,
         List<ForwardTrustFailure> failures)
     {
-        if (!IdentitiesEqual(first, replay))
+        if (!IdentitiesEqual(first, replay)
+            || (dimension == ForwardTrustDimension.ClientAddress
+                && (first.HasForwardedForObservation != replay.HasForwardedForObservation
+                    || !string.Equals(first.RemainingForwardedFor, replay.RemainingForwardedFor, StringComparison.Ordinal))))
         {
             failures.Add(new ForwardTrustFailure(
                 scenario.Name,
@@ -777,13 +799,9 @@ public sealed class ForwardTrustVerifier
                     }
                 }
         }
-        if (NeedsHostBaselineProbe(scenario)
-            || (dimensions.Any(static dimension => dimension.Dimension == ForwardTrustDimension.ClientAddress)
-                && scenario.Headers.ContainsKey("X-Forwarded-Host")))
+        if (NeedsHostBaselineProbe(scenario))
         {
-            var alternates = NeedsHostBaselineProbe(scenario)
-                ? new[] { CounterfactualValue("X-Forwarded-Host", acceptedExpectedIdentity, scenario) }
-                : new[] { "counterfactual.example", "alternate-counterfactual.example" };
+            var alternates = new[] { CounterfactualValue("X-Forwarded-Host", acceptedExpectedIdentity, scenario) };
             foreach (var alternate in alternates)
                 foreach (var request in requests)
                 {
@@ -1070,6 +1088,8 @@ public sealed class ForwardTrustVerifier
     }
 
     private sealed record DimensionAttempt(List<ForwardTrustFailure> Failures, bool CanTryAnotherHop);
+
+    private sealed record AddressProof(List<ForwardTrustFailure> Failures, ForwardedHeaderValues.Token? Boundary);
 
     private sealed record DimensionSpec(ForwardTrustDimension Dimension, string HeaderName);
 

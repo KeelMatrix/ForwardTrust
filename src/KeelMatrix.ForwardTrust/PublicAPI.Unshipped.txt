@@ -1,1 +1,4 @@
 #nullable enable
+KeelMatrix.ForwardTrust.ForwardedIdentity.WithForwardedForObservation(string? remainingForwardedFor) -> KeelMatrix.ForwardTrust.ForwardedIdentity!
+KeelMatrix.ForwardTrust.ForwardedIdentity.HasForwardedForObservation.get -> bool
+KeelMatrix.ForwardTrust.ForwardedIdentity.RemainingForwardedFor.get -> string?
