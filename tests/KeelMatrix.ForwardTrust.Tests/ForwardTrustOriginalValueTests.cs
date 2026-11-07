@@ -1,4 +1,5 @@
 ﻿using System.Net;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpOverrides;
 
 namespace KeelMatrix.ForwardTrust.Tests;
@@ -42,7 +43,7 @@ public sealed class ForwardTrustOriginalValueTests
     [InlineData("X-Forwarded-Proto", "https, http", "http")]
     [InlineData("X-Forwarded-Host", "public.example, localhost", "localhost")]
     [InlineData("X-Forwarded-For", "198.51.100.10, 10.0.0.10", "10.0.0.10")]
-    public async Task AppliedOriginalEqualToBaselineCanPassAtAPartialHop(string header, string value, string expected)
+    public async Task BaselineEqualOriginalRequiresAnObservableOriginalEffect(string header, string value, string expected)
     {
         await using var host = await TestHostHarness.StartAsync(options =>
         {
@@ -54,8 +55,20 @@ public sealed class ForwardTrustOriginalValueTests
         var identity = new ForwardedIdentity(header == "X-Forwarded-Proto" ? expected : "http",
             header == "X-Forwarded-For" ? IPAddress.Parse(expected) : Trusted,
             header == "X-Forwarded-Host" ? expected : null);
+        var context = await host.Server.SendAsync(context =>
+        {
+            context.Connection.RemoteIpAddress = Trusted;
+            context.Request.Headers[header] = value;
+        });
+        Assert.True(context.Request.Headers.ContainsKey(header.Replace("Forwarded", "Original", StringComparison.Ordinal)));
+        Assert.Single(context.Request.Headers.GetCommaSeparatedValues(header));
         var result = await new ForwardTrustVerifier().VerifyAsync([Pair(header, value, identity, false)], TestHostHarness.CreateSender(host.Server));
-        Assert.True(result.Succeeded, string.Join(" | ", result.Failures.Select(f => f.Message)));
+        Assert.Equal(header != "X-Forwarded-For", result.Succeeded);
+        if (header == "X-Forwarded-For")
+        {
+            Assert.Contains(result.Failures, f => f.Kind == ForwardTrustFailureKind.ForwardedValueNotProven
+                && f.Dimension == ForwardTrustDimension.ClientAddress);
+        }
     }
 
     [Theory]

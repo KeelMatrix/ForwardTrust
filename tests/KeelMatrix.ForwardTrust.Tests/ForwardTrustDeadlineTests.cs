@@ -5,11 +5,11 @@ namespace KeelMatrix.ForwardTrust.Tests;
 public sealed class ForwardTrustDeadlineTests
 {
     private static readonly bool[] AsyncModes = [false, true];
-    private static readonly string[] Proofs = ["scheme", "host", "address-dependency"];
+    private static readonly string[] Proofs = ["scheme", "host", "address-dependency", "address-commit-host"];
 
     public static IEnumerable<object[]> CallbackBoundaries() =>
         from proof in Proofs
-        from phase in Enumerable.Range(1, proof == "host" ? 14 : proof == "address-dependency" ? 22 : 8)
+        from phase in Enumerable.Range(1, proof == "host" ? 14 : proof == "address-dependency" ? 24 : proof == "address-commit-host" ? 16 : 8)
         from asynchronous in AsyncModes
         select new object[] { phase, asynchronous, proof };
 
@@ -83,9 +83,10 @@ public sealed class ForwardTrustDeadlineTests
         Assert.Equal(1, calls);
     }
 
-    private static ForwardTrustScenario Scenario(string proof = "scheme") => new("deadline", "10.0.0.10",
-        new ForwardedIdentity(proof == "host" ? "http" : "https", IPAddress.Parse(proof == "address-dependency" ? "10.0.0.11" : "10.0.0.10"), proof == "host" ? "localhost" : null), ForwardTrustHeaderExpectation.Accepted,
+    private static ForwardTrustScenario Scenario(string proof = "scheme") => new(proof, "10.0.0.10",
+        new ForwardedIdentity(proof is "host" or "address-commit-host" ? "http" : "https", IPAddress.Parse(proof == "address-dependency" ? "10.0.0.11" : "10.0.0.10"), proof == "host" ? "localhost" : null), ForwardTrustHeaderExpectation.Accepted,
         proof == "host" ? new Dictionary<string, string> { ["X-Forwarded-Host"] = "localhost" }
+            : proof == "address-commit-host" ? new Dictionary<string, string> { ["X-Forwarded-For"] = "10.0.0.10", ["X-Forwarded-Host"] = "localhost" }
             : proof == "address-dependency" ? new Dictionary<string, string> { ["X-Forwarded-Proto"] = "https, http", ["X-Forwarded-For"] = "10.0.0.11" }
             : new Dictionary<string, string> { ["X-Forwarded-Proto"] = "https" },
         control: new ForwardTrustControl("10.0.0.20", new ForwardedIdentity("http", IPAddress.Parse("10.0.0.20"), proof == "host" ? "localhost" : null)));
@@ -93,6 +94,12 @@ public sealed class ForwardTrustDeadlineTests
     private static ForwardedIdentity Observe(ForwardTrustRequest request)
     {
         var trusted = request.ImmediatePeerAddress.Equals(IPAddress.Parse("10.0.0.10"));
+        if (request.Scenario.Name == "address-commit-host")
+        {
+            return new ForwardedIdentity("http",
+                trusted && request.Headers.TryGetValue("X-Forwarded-For", out var forwarded) ? IPAddress.Parse(forwarded) : request.ImmediatePeerAddress,
+                trusted && request.Headers.TryGetValue("X-Forwarded-Host", out var forwardedHost) ? forwardedHost : request.Headers.GetValueOrDefault("Host", "localhost"));
+        }
         if (request.Headers.TryGetValue("X-Forwarded-Host", out var host))
         {
             return new ForwardedIdentity("http", request.ImmediatePeerAddress, trusted ? host : request.Headers.GetValueOrDefault("Host", "localhost"));

@@ -13,6 +13,74 @@ public sealed class ForwardTrustGeneratedHeaderBoundsTests
     private static readonly IPAddress UntrustedPeer = IPAddress.Parse("10.0.0.20");
     private static readonly IPAddress AcceptedClient = IPAddress.Parse("198.51.100.10");
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task UnassertedHostCommitWitnessIsBoundedBeforeSending(bool existingHost, bool rejectedPrimary)
+    {
+        var headers = new Dictionary<string, string> { ["X-Forwarded-For"] = TrustedPeer.ToString(), ["X-Forwarded-Host"] = "localhost" };
+        if (existingHost) { headers["Host"] = "localhost"; }
+        while (headers.Count < 64) { headers[$"X-Padding-{headers.Count}"] = "a"; }
+        var accepted = new ForwardedIdentity("http", TrustedPeer);
+        var rejected = new ForwardedIdentity("http", UntrustedPeer);
+        var scenario = new ForwardTrustScenario("unasserted-host-witness-bounds", (rejectedPrimary ? UntrustedPeer : TrustedPeer).ToString(),
+            rejectedPrimary ? rejected : accepted,
+            rejectedPrimary ? ForwardTrustHeaderExpectation.Rejected : ForwardTrustHeaderExpectation.Accepted, headers,
+            control: new ForwardTrustControl((rejectedPrimary ? TrustedPeer : UntrustedPeer).ToString(), rejectedPrimary ? accepted : rejected));
+        var calls = 0;
+        _ = await new ForwardTrustVerifier().VerifyAsync([scenario], (request, _) =>
+        {
+            calls++;
+            Assert.InRange(request.Headers.Count, 0, 64);
+            return ValueTask.FromResult(new ForwardedIdentity("http", request.ImmediatePeerAddress, "localhost"));
+        });
+        Assert.Equal(existingHost, calls > 0);
+    }
+
+    [Theory]
+    [InlineData(-1, false)]
+    [InlineData(0, false)]
+    [InlineData(1, false)]
+    [InlineData(-1, true)]
+    [InlineData(0, true)]
+    [InlineData(1, true)]
+    public async Task BothPossibleOrdinaryHostAlternatesRespectAggregateBounds(int delta, bool rejectedPrimary)
+    {
+        const string originalHost = "counterfactual.example";
+        const string ordinaryHost = "localhost";
+        const string largerAlternate = "alternate-counterfactual.example";
+        var headers = new Dictionary<string, string>
+        {
+            ["X-Forwarded-For"] = TrustedPeer.ToString(),
+            ["X-Forwarded-Host"] = originalHost,
+            ["Host"] = ordinaryHost
+        };
+        var target = MaxAggregateHeaderBytes - (largerAlternate.Length - ordinaryHost.Length) + delta;
+        for (var index = 0; CountHeaderBytes(headers) < target; index++)
+        {
+            var name = $"X-Filler-{index}";
+            headers[name] = new string('a', Math.Min(MaxHeaderValueLength, target - CountHeaderBytes(headers) - name.Length));
+        }
+        Assert.Equal(target, CountHeaderBytes(headers));
+        var accepted = new ForwardedIdentity("http", TrustedPeer);
+        var rejected = new ForwardedIdentity("http", UntrustedPeer);
+        var scenario = new ForwardTrustScenario("ordinary-host-aggregate", (rejectedPrimary ? UntrustedPeer : TrustedPeer).ToString(),
+            rejectedPrimary ? rejected : accepted,
+            rejectedPrimary ? ForwardTrustHeaderExpectation.Rejected : ForwardTrustHeaderExpectation.Accepted, headers,
+            control: new ForwardTrustControl((rejectedPrimary ? TrustedPeer : UntrustedPeer).ToString(), rejectedPrimary ? accepted : rejected));
+        var calls = 0;
+        var result = await new ForwardTrustVerifier().VerifyAsync([scenario], (request, _) =>
+        {
+            calls++;
+            Assert.InRange(CountHeaderBytes(request.Headers), 0, MaxAggregateHeaderBytes);
+            return ValueTask.FromResult(new ForwardedIdentity("http", request.ImmediatePeerAddress, originalHost));
+        });
+        Assert.Equal(delta <= 0, calls > 0);
+        if (delta > 0) { Assert.Contains(result.Failures, failure => failure.Kind == ForwardTrustFailureKind.MalformedScenario); }
+    }
+
     public static IEnumerable<object[]> PerValueOverflowCases()
     {
         foreach (var header in HeaderCases())

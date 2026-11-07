@@ -34,6 +34,11 @@ public sealed class ForwardTrustVerifier
     /// validation returns <see cref="ForwardTrustFailureKind.MalformedScenario"/> before sending.
     /// Original host application must be distinguishable from the accepted path's own baseline;
     /// an indistinguishable baseline returns <see cref="ForwardTrustFailureKind.ForwardedValueNotProven"/>.
+    /// Original address application is checked independently of address counterfactuals against a
+    /// replayed accepted-path baseline with the conventional forwarded identity headers omitted.
+    /// A coincident address needs an observable original scheme or forwarded-host effect on that
+    /// same path, with all original forwarded values retained; otherwise it remains unproven.
+    /// The observed host can supply this evidence without an expected-host assertion.
     /// Address controls can account for dependent scheme/host traversal by replaying pairs with
     /// only earlier dependent prefixes removed. These must retain the original address, reproduce
     /// the full counterfactual identity, preserve non-target fields within the truncated pair,
@@ -137,6 +142,12 @@ public sealed class ForwardTrustVerifier
                         scenario, primaryRequest, controlRequest, observedIdentity, controlAttempt.Identity!,
                         requestSender, cancellationToken).ConfigureAwait(false));
                 }
+                if (dimensions.Any(static dimension => dimension.Dimension == ForwardTrustDimension.ClientAddress))
+                {
+                    failures.AddRange(await VerifyOriginalAddressAsync(
+                        scenario, primaryRequest, controlRequest, observedIdentity, controlAttempt.Identity!,
+                        requestSender, cancellationToken).ConfigureAwait(false));
+                }
                 foreach (var dimension in dimensions)
                 {
                     var lastAttempt = new List<ForwardTrustFailure>();
@@ -156,6 +167,50 @@ public sealed class ForwardTrustVerifier
         return new ForwardTrustScenarioResult(scenario.Name, failures.Count == 0, observedIdentity, failures);
     }
 
+    private async Task<List<ForwardTrustFailure>> VerifyOriginalAddressAsync(
+        ForwardTrustScenario scenario, RequestSpec primaryRequest, RequestSpec controlRequest,
+        ForwardedIdentity primary, ForwardedIdentity control,
+        ForwardTrustRequestSender requestSender, CancellationToken cancellationToken)
+    {
+        var acceptedRequest = scenario.HeaderExpectation == ForwardTrustHeaderExpectation.Accepted ? primaryRequest : controlRequest;
+        var accepted = scenario.HeaderExpectation == ForwardTrustHeaderExpectation.Accepted ? primary : control;
+        var baselineHeaders = new Dictionary<string, string>(acceptedRequest.Headers, StringComparer.OrdinalIgnoreCase);
+        foreach (var name in new[] { "X-Forwarded-For", "X-Forwarded-Proto", "X-Forwarded-Host" })
+        {
+            baselineHeaders.Remove(name);
+        }
+        var baselineRequest = acceptedRequest with { Headers = baselineHeaders };
+        var baseline = await SendAsync(baselineRequest, requestSender, cancellationToken).ConfigureAwait(false);
+        if (baseline.Failure is not null) { return [baseline.Failure]; }
+        var replay = await SendAsync(baselineRequest, requestSender, cancellationToken).ConfigureAwait(false);
+        if (replay.Failure is not null) { return [replay.Failure]; }
+        var failures = new List<ForwardTrustFailure>();
+        AddRepeatabilityFailure(scenario, ForwardTrustDimension.ClientAddress, "accepted forwarding-baseline request",
+            baseline.Identity!, replay.Identity!, failures);
+        if (failures.Count > 0 || !SameDimension(ForwardTrustDimension.ClientAddress, accepted, baseline.Identity!)) { return failures; }
+
+        // An address mutation can stop trust traversal before a later whole-request
+        // abort. Its successful partial commit says nothing about the original.
+        // With a coincident address, require another original effect from the same
+        // commit, keeping every original forwarded value in the witness request.
+        if (scenario.Headers.TryGetValue("X-Forwarded-Proto", out var proto)
+            && ForwardedHeaderValues.Parse(proto).Any(token => ForwardedHeaderValues.Matches(ForwardTrustDimension.Scheme, accepted, token))
+            && !SameDimension(ForwardTrustDimension.Scheme, accepted, baseline.Identity!))
+        {
+            return failures;
+        }
+        if (accepted.Host is not null
+            && scenario.Headers.TryGetValue("X-Forwarded-Host", out var host)
+            && ForwardedHeaderValues.Parse(host).Any(token => ForwardedHeaderValues.Matches(ForwardTrustDimension.Host, accepted, token)))
+        {
+            return await VerifyOriginalHostAsync(scenario, primaryRequest, controlRequest, primary, control,
+                requestSender, cancellationToken).ConfigureAwait(false);
+        }
+        failures.Add(new ForwardTrustFailure(scenario.Name, ForwardTrustFailureKind.ForwardedValueNotProven,
+            ForwardTrustDimension.ClientAddress, "Application of the original forwarded address cannot be distinguished from the accepted path's own baseline. A changed address can stop trust traversal before an original-request abort; a counterfactual commit alone cannot prove original acceptance."));
+        return failures;
+    }
+
     private async Task<List<ForwardTrustFailure>> VerifyOriginalHostAsync(
         ForwardTrustScenario scenario,
         RequestSpec primaryRequest,
@@ -169,7 +224,7 @@ public sealed class ForwardTrustVerifier
         var accepted = acceptedIndex == 0 ? primary : control;
         var acceptedRequest = acceptedIndex == 0 ? primaryRequest : controlRequest;
         var acceptedExpected = acceptedIndex == 0 ? scenario.ExpectedIdentity : scenario.Control!.ExpectedIdentity;
-        var alternate = CounterfactualValue("X-Forwarded-Host", acceptedExpected, scenario);
+        var alternate = CounterfactualValue("X-Forwarded-Host", acceptedExpected.Host is null ? accepted : acceptedExpected, scenario);
         var baselineHeaders = new Dictionary<string, string>(acceptedRequest.Headers, StringComparer.OrdinalIgnoreCase);
         baselineHeaders.Remove("X-Forwarded-Host");
         var baselineRequest = acceptedRequest with { Headers = baselineHeaders };
@@ -722,19 +777,24 @@ public sealed class ForwardTrustVerifier
                     }
                 }
         }
-        if (NeedsHostBaselineProbe(scenario))
+        if (NeedsHostBaselineProbe(scenario)
+            || (dimensions.Any(static dimension => dimension.Dimension == ForwardTrustDimension.ClientAddress)
+                && scenario.Headers.ContainsKey("X-Forwarded-Host")))
         {
-            var alternate = CounterfactualValue("X-Forwarded-Host", acceptedExpectedIdentity, scenario);
-            foreach (var request in requests)
-            {
-                var generated = CreateHostBaselineRequest(request, alternate);
-                _ = ForwardTrustScenario.CopyHeadersBounded(generated.Headers, out var exceeded, out var duplicates);
-                if (exceeded || duplicates)
+            var alternates = NeedsHostBaselineProbe(scenario)
+                ? new[] { CounterfactualValue("X-Forwarded-Host", acceptedExpectedIdentity, scenario) }
+                : new[] { "counterfactual.example", "alternate-counterfactual.example" };
+            foreach (var alternate in alternates)
+                foreach (var request in requests)
                 {
-                    failures.Add(Malformed(scenario, "A generated host-baseline request exceeds the bounded header count, value, or aggregate-size limits."));
-                    return;
+                    var generated = CreateHostBaselineRequest(request, alternate);
+                    _ = ForwardTrustScenario.CopyHeadersBounded(generated.Headers, out var exceeded, out var duplicates);
+                    if (exceeded || duplicates)
+                    {
+                        failures.Add(Malformed(scenario, "A generated host-baseline request exceeds the bounded header count, value, or aggregate-size limits."));
+                        return;
+                    }
                 }
-            }
         }
     }
 

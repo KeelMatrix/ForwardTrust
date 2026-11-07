@@ -11,7 +11,7 @@ public sealed record ForwardedIdentity
     /// <summary>Creates an observed or expected request identity.</summary>
     /// <param name="scheme">The effective request scheme, such as <c>http</c> or <c>https</c>.</param>
     /// <param name="clientAddress">The effective client address, copied when this identity is created.</param>
-    /// <param name="host">The effective host, when the scenario explicitly asserts it.</param>
+    /// <param name="host">The effective host. A null expected host omits the host assertion. Returning the observed host also enables original-commit controls when host is unasserted.</param>
     public ForwardedIdentity(string scheme, IPAddress clientAddress, string? host = null)
     {
         if (string.IsNullOrWhiteSpace(scheme))
@@ -28,7 +28,7 @@ public sealed record ForwardedIdentity
     /// <summary>Gets the effective request scheme.</summary>
     public string Scheme { get; }
 
-    /// <summary>Gets the explicitly asserted effective host, or <see langword="null"/> when host is not asserted.</summary>
+    /// <summary>Gets the effective host, or <see langword="null"/> to omit an expected host assertion or when the probe does not supply the observed host.</summary>
     public string? Host { get; }
 
     /// <summary>Gets a copy of the effective client address.</summary>

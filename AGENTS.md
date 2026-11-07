@@ -27,6 +27,7 @@ pwsh -NoProfile -File scripts/package-gate.ps1
 - Scenario validation is complete before any request executes.
 - Accepted expectations correspond to original forwarded values in every asserted dimension; controls prove a reproducible change at an effective consumed hop, including partial chains.
 - Original host proof uses the accepted path's own baseline; indistinguishable overwritten baselines remain unproven.
+- Original address proof requires an original effect against the accepted path's replayed forwarding baseline. Coincident addresses need an observable original scheme or Host effect; changed-address partial commits never substitute for original commits.
 - Address-dependent scheme/host traversal requires replayed truncated pairs that retain the original address and reproduce the full counterfactual identity; non-target differences are never ignored.
 - Failed host normalization excludes only that candidate; malformed IDN siblings cannot exclude a valid effective-hop witness, and normalization never substitutes for middleware acceptance.
 - Per-request deadlines include synchronous invocation and asynchronous completion. Caller cancellation is checked between requests; arbitrary caller code cannot be forcibly interrupted.

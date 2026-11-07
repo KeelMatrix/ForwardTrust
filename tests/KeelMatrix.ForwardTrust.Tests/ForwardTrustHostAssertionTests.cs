@@ -111,8 +111,8 @@ public sealed class ForwardTrustHostAssertionTests
             (request, _) =>
             {
                 var peer = request.ImmediatePeerAddress;
-                var address = peer.Equals(TrustedProxy)
-                    ? IPAddress.Parse(request.Headers["X-Forwarded-For"].Split(',')[0].Trim())
+                var address = peer.Equals(TrustedProxy) && request.Headers.TryGetValue("X-Forwarded-For", out var forwardedFor)
+                    ? IPAddress.Parse(forwardedFor.Split(',')[0].Trim())
                     : peer;
                 var host = peer.Equals(TrustedProxy) ? "forwarded.example" : "localhost";
                 return ValueTask.FromResult(new ForwardedIdentity("http", address, host));

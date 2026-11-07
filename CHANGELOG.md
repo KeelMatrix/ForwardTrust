@@ -14,6 +14,8 @@ All notable changes to KeelMatrix.ForwardTrust are documented here.
 
 ### Fixed
 
+- Address probes require evidence that the original forwarding committed. A changed address can stop trust traversal before a later middleware abort; that partial commit no longer proves the original request. Coincident addresses without an observable original effect remain unproven, while observable original scheme or Host effects can prove them without a host assertion.
+
 - Generated counterfactual requests are checked against the same per-value and aggregate UTF-8 header limits as the original scenario. An over-limit generated request returns `MalformedScenario` before any sender call.
 
 - Scenarios without an asserted forwarded dimension now fail before the request sender runs, for both accepted and rejected expectations.

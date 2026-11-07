@@ -184,7 +184,7 @@ public sealed class ForwardTrustRegressionTests
     }
 
     [Fact]
-    public async Task DefaultCoincidenceRequiresAWorkingCounterfactual()
+    public async Task DefaultCoincidenceRemainsUnprovenWithoutAnObservableOriginalEffect()
     {
         await using var host = await TestHostHarness.StartAsync(ConfigureExactProxies);
         var scenario = new ForwardTrustScenario(
@@ -199,9 +199,18 @@ public sealed class ForwardTrustRegressionTests
             },
             control: RejectedControl(UntrustedProxy));
 
+        var original = await host.Server.SendAsync(context =>
+        {
+            context.Connection.RemoteIpAddress = TrustedProxy;
+            foreach (var header in scenario.Headers) { context.Request.Headers[header.Key] = header.Value; }
+        });
+        Assert.True(original.Request.Headers.ContainsKey("X-Original-For"));
+        Assert.False(original.Request.Headers.ContainsKey("X-Forwarded-For"));
         var result = await new ForwardTrustVerifier().VerifyAsync([scenario], TestHostHarness.CreateSender(host.Server));
 
-        Assert.True(result.Succeeded);
+        Assert.False(result.Succeeded);
+        Assert.Contains(result.Failures, failure => failure.Kind == ForwardTrustFailureKind.ForwardedValueNotProven
+            && failure.Dimension == ForwardTrustDimension.ClientAddress);
     }
 
     [Fact]

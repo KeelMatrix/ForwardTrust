@@ -114,7 +114,7 @@ public sealed class ForwardTrustDependentChainTests
     [InlineData(true, false, true)]
     [InlineData(true, true, false)]
     [InlineData(true, true, true)]
-    public async Task SymmetryDoesNotHideALaterEffectiveRepeatedAddress(bool symmetry, bool rejectedPrimary, bool assertHost)
+    public async Task RepeatedAddressRequiresAnObservableOriginalEffect(bool symmetry, bool rejectedPrimary, bool assertHost)
     {
         var trusted = IPAddress.Parse("10.0.0.10");
         var untrusted = IPAddress.Parse("10.0.0.20");
@@ -143,8 +143,21 @@ public sealed class ForwardTrustDependentChainTests
                 rejectedPrimary ? rejected : accepted,
                 rejectedPrimary ? ForwardTrustHeaderExpectation.Rejected : ForwardTrustHeaderExpectation.Accepted, headers,
                 control: new ForwardTrustControl((rejectedPrimary ? trusted : untrusted).ToString(), rejectedPrimary ? accepted : rejected));
+            var original = await host.Server.SendAsync(context =>
+            {
+                context.Connection.RemoteIpAddress = trusted;
+                context.Request.Host = new HostString("localhost");
+                foreach (var header in headers) { context.Request.Headers[header.Key] = header.Value; }
+            });
+            Assert.True(original.Request.Headers.ContainsKey("X-Original-For"));
+            Assert.Equal(limit == 1 ? 1 : 0, original.Request.Headers.GetCommaSeparatedValues("X-Forwarded-For").Length);
             var result = await new ForwardTrustVerifier().VerifyAsync([scenario], TestHostHarness.CreateSender(host.Server));
-            Assert.True(result.Succeeded, string.Join(" | ", result.Failures.Select(f => f.Message)));
+            Assert.Equal(assertHost || limit != 1, result.Succeeded);
+            if (!result.Succeeded)
+            {
+                Assert.Contains(result.Failures, f => f.Kind == ForwardTrustFailureKind.ForwardedValueNotProven
+                    && f.Dimension == ForwardTrustDimension.ClientAddress);
+            }
         }
     }
 
