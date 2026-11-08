@@ -523,13 +523,13 @@ try {
     foreach ($heading in @('## [0.1.0]-2026-10-18', '## [0.1.0] - 2026-02-30', '## [0.2.0] - 2026-10-18', '## [0.1.x] - 2026-10-18')) {
         $fixtureRoot = Join-Path $tempRoot ([guid]::NewGuid().ToString('N'))
         Write-Fixture $fixtureRoot '0.1.0' ($firstReleaseText.Replace('## [0.1.0] - 2026-10-18', $heading))
-        Invoke-NestedPwsh -NoProfile -File $packageGate -Stage Changelog -RepositoryRoot $fixtureRoot
+        Invoke-NestedPwsh -NoProfile -File $packageGate -Stage Changelog -RepositoryRoot $fixtureRoot -ExpectedVersion 0.1.0 -ExpectedPackageVersion 0.1.0
         Assert-Result "automatic gate rejects heading $heading" $false
     }
     $taggedUnreleased = New-ReleaseFixture 'tagged-unreleased' '0.1.0' $firstReleaseText 'v0.1.0' $true
     Write-Fixture $taggedUnreleased.Root '0.1.0' "# Changelog`n`n## [Unreleased]`n`n### Added`n`n- Initial package."
     Amend-FixtureCommit $taggedUnreleased.Root
-    Invoke-NestedPwsh -NoProfile -File $packageGate -Stage Changelog -RepositoryRoot $taggedUnreleased.Root
+    Invoke-NestedPwsh -NoProfile -File $packageGate -Stage Changelog -RepositoryRoot $taggedUnreleased.Root -ExpectedVersion 0.1.0 -ExpectedPackageVersion 0.1.0
     Assert-Result 'automatic gate rejects tagged Unreleased version' $false
 
     $allFailure = Join-Path $tempRoot 'all-stage-invalid-changelog'
@@ -537,7 +537,7 @@ try {
     $artifactSentinel = Join-Path $allFailure 'artifacts/sentinel.txt'
     New-Item -ItemType Directory -Path (Split-Path -Parent $artifactSentinel) | Out-Null
     Set-Content -LiteralPath $artifactSentinel -Value 'preserve before validation' -Encoding utf8
-    Invoke-NestedPwsh -NoProfile -File $packageGate -RepositoryRoot $allFailure
+    Invoke-NestedPwsh -NoProfile -File $packageGate -RepositoryRoot $allFailure -ExpectedVersion 0.1.0 -ExpectedPackageVersion 0.1.0
     Assert-Result 'default All stage propagates changelog failure before build/cleanup' $false
     if (-not (Test-Path -LiteralPath $artifactSentinel)) { throw 'Invalid changelog reached artifact cleanup.' }
 

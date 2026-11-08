@@ -10,6 +10,6 @@
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="8.0.33" />
-    <PackageReference Include="KeelMatrix.ForwardTrust" Version="[0.1.0]" />
+    <PackageReference Include="KeelMatrix.ForwardTrust" Version="[0.1.1]" />
   </ItemGroup>
 </Project>

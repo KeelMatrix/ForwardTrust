@@ -4,10 +4,11 @@ All notable changes to KeelMatrix.ForwardTrust are documented here.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-08
+
 ### Fixed
 
-- Preserves repository-relative SourceLink paths so debugger source retrieval matches the symbols' source checksums.
-- Validates development packages after publication while retaining strict release version, changelog and tag checks.
+- Fixes debugging source links so stepping into the library retrieves the matching source files.
 
 ## [0.1.0] - 2026-11-08
 

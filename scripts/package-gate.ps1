@@ -2,8 +2,8 @@
 param(
     [string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot),
     [ValidateSet('All', 'Changelog')][string]$Stage = 'All',
-    [string]$ExpectedVersion = '0.1.0',
-    [string]$ExpectedPackageVersion = '0.1.0',
+    [string]$ExpectedVersion = '0.1.1',
+    [string]$ExpectedPackageVersion = '0.1.1',
     [ValidateSet('Auto', 'Unreleased', 'Development', 'Finalized', 'Tagged')][string]$ChangelogState = 'Auto',
     [string]$ExpectedTag,
     [string]$ExpectedCommit,
@@ -71,25 +71,25 @@ Invoke-Step 'pwsh -NoProfile -File scripts/Test-VulnerabilityAudit.ps1' {
 Invoke-Step 'pwsh -NoProfile -File scripts/Invoke-VulnerabilityAudit.ps1 -ReportPath artifacts/vulnerability-audit.json' {
     Invoke-NestedPwsh -NoProfile -File scripts/Invoke-VulnerabilityAudit.ps1 -ReportPath (Join-Path $artifactRoot 'vulnerability-audit.json')
 }
-Invoke-Step 'pwsh -NoProfile -File scripts/Test-PackageReproducibility.ps1 -PackageDirectory artifacts/packages -ExpectedVersion 0.1.0' {
-    Invoke-NestedPwsh -NoProfile -File scripts/Test-PackageReproducibility.ps1 -PackageDirectory $packages -ExpectedVersion '0.1.0'
+Invoke-Step 'pwsh -NoProfile -File scripts/Test-PackageReproducibility.ps1 -PackageDirectory artifacts/packages -ExpectedVersion 0.1.1' {
+    Invoke-NestedPwsh -NoProfile -File scripts/Test-PackageReproducibility.ps1 -PackageDirectory $packages -ExpectedVersion '0.1.1'
 }
-Invoke-Step 'pwsh -NoProfile -File scripts/test-changelog-contract.ps1 -ExpectedVersion 0.1.0 -ExpectedPackageVersion 0.1.0' {
-    Invoke-NestedPwsh -NoProfile -File scripts/test-changelog-contract.ps1 -ExpectedVersion 0.1.0 -ExpectedPackageVersion 0.1.0
-}
-
-$nupkg = Join-Path $packages 'KeelMatrix.ForwardTrust.0.1.0.nupkg'
-$snupkg = Join-Path $packages 'KeelMatrix.ForwardTrust.0.1.0.snupkg'
-Invoke-Step 'pwsh -NoProfile -File scripts/validate-package.ps1 -PackageDirectory artifacts/packages -ExpectedVersion 0.1.0' {
-    Invoke-NestedPwsh -NoProfile -File scripts/validate-package.ps1 -PackageDirectory $packages -ExpectedVersion 0.1.0 -ResolveSourceUrls: $ResolveSourceUrls
+Invoke-Step 'pwsh -NoProfile -File scripts/test-changelog-contract.ps1 -ExpectedVersion 0.1.1 -ExpectedPackageVersion 0.1.1' {
+    Invoke-NestedPwsh -NoProfile -File scripts/test-changelog-contract.ps1 -ExpectedVersion 0.1.1 -ExpectedPackageVersion 0.1.1
 }
 
-Invoke-Step 'pwsh -NoProfile -File scripts/Test-SourceLinkContract.ps1 -PackageDirectory artifacts/packages -ExpectedVersion 0.1.0' {
-    Invoke-NestedPwsh -NoProfile -File scripts/Test-SourceLinkContract.ps1 -PackageDirectory $packages -ExpectedVersion 0.1.0
+$nupkg = Join-Path $packages 'KeelMatrix.ForwardTrust.0.1.1.nupkg'
+$snupkg = Join-Path $packages 'KeelMatrix.ForwardTrust.0.1.1.snupkg'
+Invoke-Step 'pwsh -NoProfile -File scripts/validate-package.ps1 -PackageDirectory artifacts/packages -ExpectedVersion 0.1.1' {
+    Invoke-NestedPwsh -NoProfile -File scripts/validate-package.ps1 -PackageDirectory $packages -ExpectedVersion 0.1.1 -ResolveSourceUrls: $ResolveSourceUrls
 }
 
-Invoke-Step 'pwsh -NoProfile -File scripts/validate-quickstart.ps1 -PackagePath artifacts/packages/KeelMatrix.ForwardTrust.0.1.0.nupkg -ExpectedVersion 0.1.0' {
-    Invoke-NestedPwsh -NoProfile -File scripts/validate-quickstart.ps1 -PackagePath $nupkg -ExpectedVersion 0.1.0
+Invoke-Step 'pwsh -NoProfile -File scripts/Test-SourceLinkContract.ps1 -PackageDirectory artifacts/packages -ExpectedVersion 0.1.1' {
+    Invoke-NestedPwsh -NoProfile -File scripts/Test-SourceLinkContract.ps1 -PackageDirectory $packages -ExpectedVersion 0.1.1
+}
+
+Invoke-Step 'pwsh -NoProfile -File scripts/validate-quickstart.ps1 -PackagePath artifacts/packages/KeelMatrix.ForwardTrust.0.1.1.nupkg -ExpectedVersion 0.1.1' {
+    Invoke-NestedPwsh -NoProfile -File scripts/validate-quickstart.ps1 -PackagePath $nupkg -ExpectedVersion 0.1.1
 }
 
 Copy-Item -LiteralPath $nupkg -Destination $smokeFeed

@@ -2,7 +2,7 @@
 param(
     [string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot),
     [string]$PackageDirectory = 'artifacts/packages',
-    [string]$ExpectedVersion = '0.1.0'
+    [string]$ExpectedVersion = '0.1.1'
 )
 
 $ErrorActionPreference = 'Stop'

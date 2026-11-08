@@ -38,7 +38,7 @@ The SDK derives deterministic compiler paths and SourceLink paths from the same 
 After the solution build and pack, run focused checks with:
 
 ```powershell
-pwsh -NoProfile -File scripts/validate-package.ps1 -PackageDirectory artifacts/packages -ExpectedVersion 0.1.0
+pwsh -NoProfile -File scripts/validate-package.ps1 -PackageDirectory artifacts/packages -ExpectedVersion 0.1.1
 pwsh -NoProfile -File scripts/Test-SourceLinkContract.ps1
 ```
 
@@ -56,7 +56,7 @@ Run the inexpensive lifecycle stage or its isolated fixtures independently:
 
 ```powershell
 pwsh -NoProfile -File scripts/package-gate.ps1 -Stage Changelog
-pwsh -NoProfile -File scripts/test-changelog-contract.ps1 -ExpectedVersion 0.1.0 -ExpectedPackageVersion 0.1.0
+pwsh -NoProfile -File scripts/test-changelog-contract.ps1 -ExpectedVersion 0.1.1 -ExpectedPackageVersion 0.1.1
 ```
 
 While editing an exact tagged checkout, use `-FixturesOnly` on `test-changelog-contract.ps1` to run disposable lifecycle regressions without validating the dirty checkout as a release. The full package gate always validates the actual checkout and all fixtures.
@@ -66,7 +66,7 @@ For a later release, first select a new version and finalize its notes in a sepa
 ```powershell
 $releaseCommit = (git rev-parse HEAD).Trim()
 $releaseDate = (git show -s --format=%cs $releaseCommit).Trim()
-pwsh -NoProfile -File scripts/validate-changelog.ps1 -State Finalized -ExpectedVersion 0.1.0 -ExpectedPackageVersion 0.1.0 -ExpectedTag v0.1.0 -ExpectedCommit $releaseCommit -ExpectedReleaseDate $releaseDate -RequireIcon
+pwsh -NoProfile -File scripts/validate-changelog.ps1 -State Finalized -ExpectedVersion 0.1.1 -ExpectedPackageVersion 0.1.1 -ExpectedTag v0.1.1 -ExpectedCommit $releaseCommit -ExpectedReleaseDate $releaseDate -RequireIcon
 ```
 
 The tag workflow uses the same entry point with `-State Tagged`, requiring the tag to point at the exact commit. Contract fixtures exercise the actual package-gate lifecycle stage and workflow lifecycle commands, first and subsequent releases, development with LF/CRLF checkouts, published-history preservation, invalid version/date/SHA/tag, heading uniqueness and changes stranded under `Unreleased`, including child-process failure propagation. A tagged planned target and a development commit both fail the publication check. Fixture tags exist only in disposable repositories. The package gate creates no product tags and publishes no packages.

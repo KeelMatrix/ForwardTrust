@@ -17,7 +17,7 @@ dotnet build KeelMatrix.ForwardTrust.sln -c Release --no-restore
 dotnet test KeelMatrix.ForwardTrust.sln -c Release --no-build
 dotnet format KeelMatrix.ForwardTrust.sln --verify-no-changes
 dotnet pack src/KeelMatrix.ForwardTrust/KeelMatrix.ForwardTrust.csproj -c Release --no-build -o artifacts/packages
-pwsh -NoProfile -File scripts/test-changelog-contract.ps1 -ExpectedVersion 0.1.0 -ExpectedPackageVersion 0.1.0
+pwsh -NoProfile -File scripts/test-changelog-contract.ps1 -ExpectedVersion 0.1.1 -ExpectedPackageVersion 0.1.1
 pwsh -NoProfile -File scripts/package-gate.ps1
 ```
 
