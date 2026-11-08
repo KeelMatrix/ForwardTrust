@@ -2,9 +2,9 @@
 
 KeelMatrix.ForwardTrust turns an ASP.NET Core application's forwarded-header trust boundary into executable integration-test scenarios. It checks what the real middleware pipeline exposes for trusted proxies, untrusted peers, multiple hops, schemes, hosts, and client addresses.
 
-## Install
-
 For contributor package and source/symbol validation, see [the development guide](docs/DEV.md#source-and-symbol-validation).
+
+## Install
 
 ```bash
 dotnet new xunit --framework net8.0 --name ForwardTrust.Tests

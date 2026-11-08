@@ -2,9 +2,9 @@
 
 Verify ASP.NET Core forwarded-header trust behavior with executable integration-test scenarios.
 
-## Install
-
 For contributor package and source/symbol validation, see [the development guide](https://github.com/KeelMatrix/ForwardTrust/blob/main/docs/DEV.md#source-and-symbol-validation).
+
+## Install
 
 ```bash
 dotnet new xunit --framework net8.0 --name ForwardTrust.Tests
