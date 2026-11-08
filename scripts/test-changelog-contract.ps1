@@ -2,7 +2,8 @@
 param(
     [string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot),
     [Parameter(Mandatory = $true)][string]$ExpectedVersion,
-    [Parameter(Mandatory = $true)][string]$ExpectedPackageVersion
+    [Parameter(Mandatory = $true)][string]$ExpectedPackageVersion,
+    [switch]$FixturesOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -198,9 +199,42 @@ function Add-SecondCommit([pscustomobject]$Fixture) {
     $Fixture.Date = $fixtureCommit.Date
 }
 
+function Invoke-Lifecycle([string]$FixtureRoot, [string]$Version, [string]$ExpectedState, [bool]$ShouldPass, [string]$Label, [string]$State = 'Auto') {
+    $output = Invoke-NestedPwsh -NoProfile -File $packageGate -Stage Changelog -RepositoryRoot $FixtureRoot -ExpectedVersion $Version -ExpectedPackageVersion $Version -ChangelogState $State 2>&1
+    Assert-Result $Label $ShouldPass
+    if ($ShouldPass -and ($output -join "`n") -notmatch "Changelog lifecycle passed: $ExpectedState") {
+        throw "Wrong lifecycle selected for '$Label': $output"
+    }
+    Write-Output "Lifecycle fixture passed: $Label"
+}
+
+function Invoke-WorkflowLifecycle([string]$FixtureRoot, [string]$Version, [bool]$Release, [bool]$ShouldPass, [string]$Label) {
+    # Execute the actual workflow command with a fixture root/version, without build or publication.
+    $quotedRoot = $FixtureRoot.Replace("'", "''")
+    if ($Release) {
+        $workflow = Get-Content -LiteralPath (Join-Path $root '.github/workflows/release.yml') -Raw
+        $match = [regex]::Match($workflow, '(?ms)- name: Validate release tag and changelog\r?\n\s+shell: pwsh\r?\n\s+run: \|\r?\n(?<command>.*?)(?=^      - name:)')
+        $quotedValidator = (Join-Path $PSScriptRoot 'validate-changelog.ps1').Replace("'", "''")
+        $command = $match.Groups['command'].Value.Replace('./scripts/validate-changelog.ps1', "& '$quotedValidator' -RepositoryRoot '$quotedRoot'").Replace(' -RequireIcon', '')
+    } else {
+        $workflow = Get-Content -LiteralPath (Join-Path $root '.github/workflows/ci.yml') -Raw
+        $match = [regex]::Match($workflow, '(?m)- name: Run package and repository hygiene gates\r?\n\s+shell: pwsh\r?\n\s+run: (?<command>[^\r\n]+)')
+        $quotedGate = $packageGate.Replace("'", "''")
+        $command = $match.Groups['command'].Value.Replace('./scripts/package-gate.ps1', "& '$quotedGate' -Stage Changelog -RepositoryRoot '$quotedRoot' -ExpectedVersion $Version -ExpectedPackageVersion $Version")
+    }
+    if (-not $match.Success -or $command -ceq $match.Groups['command'].Value) { throw 'Could not locate workflow lifecycle entry point.' }
+    if ($workflow -notmatch 'fetch-depth: 0') { throw 'Workflow must fetch full history and tags for lifecycle validation.' }
+    $output = Invoke-NestedPwsh -NoProfile -Command ("`$ErrorActionPreference = 'Stop'; Set-Location -LiteralPath '$quotedRoot'; `$env:GITHUB_REF_NAME = 'v$Version'; " + $command) 2>&1
+    if (($LASTEXITCODE -eq 0) -ne $ShouldPass) { Write-Output $output }
+    Assert-Result $Label $ShouldPass
+    Write-Output "Workflow lifecycle fixture passed: $Label"
+}
+
 try {
-    Invoke-NestedPwsh -NoProfile -File $packageGate -Stage Changelog -RepositoryRoot $root -ExpectedVersion $ExpectedVersion -ExpectedPackageVersion $ExpectedPackageVersion
-    Assert-Result 'repository lifecycle gate' $true
+    if (-not $FixturesOnly) {
+        Invoke-NestedPwsh -NoProfile -File $packageGate -Stage Changelog -RepositoryRoot $root -ExpectedVersion $ExpectedVersion -ExpectedPackageVersion $ExpectedPackageVersion
+        Assert-Result 'repository lifecycle gate' $true
+    }
 
     $firstCandidate = Join-Path $tempRoot 'first-candidate'
     Write-Fixture $firstCandidate '0.1.0' @'
@@ -278,6 +312,7 @@ try {
     Invoke-ReleaseContract $firstRelease.Root '0.1.0' '0.1.0' 'v0.1.0' $firstRelease.Commit $firstRelease.Date $true $true 'first-release exact tag SHA'
     Invoke-NestedPwsh -NoProfile -File $packageGate -Stage Changelog -RepositoryRoot $firstRelease.Root
     Assert-Result 'automatic exact-tag package gate' $true
+    Invoke-WorkflowLifecycle $firstRelease.Root '0.1.0' $true $true 'release workflow exact tagged commit'
     Invoke-ReleaseContract $firstRelease.Root '0.1.0-preview' '0.1.0-preview' 'v0.1.0-preview' $firstRelease.Commit $firstRelease.Date $true $false 'invalid stable version'
     Invoke-ReleaseContract $firstRelease.Root '0.1.0' '0.1.0' 'v0.1.0' 'not-a-sha' $firstRelease.Date $true $false 'invalid commit syntax'
     Invoke-ReleaseContract $firstRelease.Root '0.1.0' '0.1.0' 'v0.1.0' ('0' * 40) $firstRelease.Date $true $false 'wrong exact commit'
@@ -369,6 +404,59 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Could not create subsequent-release tag fixture.' }
     Invoke-ReleaseContract $subsequentRelease.Root '0.2.0' '0.2.0' 'v0.2.0' $subsequentRelease.Commit $subsequentRelease.Date $true $true 'subsequent-release exact tag SHA'
 
+    foreach ($version in @('0.1.0', '0.2.0')) {
+        foreach ($lineEnding in @('LF', 'CRLF')) {
+            $text = if ($version -eq '0.1.0') { $firstReleaseText } else { $subsequentReleaseText }
+            $development = New-ReleaseFixture "development-$version-$lineEnding" $version $text "v$version" $true
+            Add-SecondCommit $development
+            Invoke-Lifecycle $development.Root $version 'Development' $true "maintenance without new notes ($version/$lineEnding)"
+            $publishedText = Get-Content -LiteralPath (Join-Path $development.Root 'CHANGELOG.md') -Raw
+            $notes = $publishedText.Replace('## [Unreleased]', "## [Unreleased]`n`n### Fixed`n`n- Source URLs preserve repository paths.")
+            Write-Fixture $development.Root $version (Convert-FixtureLineEndings $notes $lineEnding)
+            Amend-FixtureCommit $development.Root
+            Invoke-Lifecycle $development.Root $version 'Development' $true "maintenance with old tag ($version/$lineEnding)"
+            Invoke-Lifecycle $development.Root $version 'Development' $true "explicit development ($version/$lineEnding)" 'Development'
+            Invoke-Lifecycle $development.Root $version '' $false "maintenance cannot prepare used release ($version/$lineEnding)" 'Finalized'
+            Invoke-Lifecycle $development.Root $version '' $false "maintenance cannot publish used release ($version/$lineEnding)" 'Tagged'
+            Invoke-WorkflowLifecycle $development.Root $version $false $true "ordinary CI development ($version/$lineEnding)"
+            Invoke-WorkflowLifecycle $development.Root $version $true $false "release CI rejects maintenance ($version/$lineEnding)"
+            Write-Fixture $development.Root $version (Convert-FixtureLineEndings ($notes.Replace('### Added', '### Changed')) $lineEnding)
+            Invoke-Lifecycle $development.Root $version '' $false "development preserves all published notes ($version/$lineEnding)"
+            Write-Fixture $development.Root '9.9.9' $notes
+            Invoke-Lifecycle $development.Root $version '' $false "development source version mismatch ($version/$lineEnding)"
+        }
+    }
+
+    $plannedText = $firstReleaseText.Replace('- Executable forwarded-header trust scenarios for ASP.NET Core applications.', '- Planned package; not yet published.')
+    $planned = New-ReleaseFixture 'planned-tagged-release' '0.1.0' $plannedText 'v0.1.0' $true
+    Invoke-WorkflowLifecycle $planned.Root '0.1.0' $true $false 'planned target cannot pass publication gate'
+
+    $missingHistory = New-ReleaseFixture 'development-missing-tag' '0.1.0' $firstReleaseText
+    Add-SecondCommit $missingHistory
+    Invoke-Lifecycle $missingHistory.Root '0.1.0' '' $false 'development requires a published tag' 'Development'
+    Invoke-Lifecycle $firstRelease.Root '0.1.0' '' $false 'exact tag cannot claim development' 'Development'
+    Invoke-NestedPwsh -NoProfile -File $packageGate -Stage Changelog -RepositoryRoot $missingHistory.Root -ChangelogState Development -ExpectedVersion 0.1.0 -ExpectedPackageVersion 0.2.0
+    Assert-Result 'development rejects package version mismatch' $false
+
+    $mismatchedBaseline = New-ReleaseFixture 'development-baseline-version' '0.2.0' $subsequentReleaseText 'v0.1.0' $true
+    Add-SecondCommit $mismatchedBaseline
+    Write-Fixture $mismatchedBaseline.Root '0.1.0' $firstReleaseText
+    Invoke-Lifecycle $mismatchedBaseline.Root '0.1.0' '' $false 'published tag must carry matching source version'
+
+    $wrongBranch = New-ReleaseFixture 'development-unrelated-tag' '0.1.0' $firstReleaseText 'v0.1.0' $true
+    & git -C $wrongBranch.Root checkout --orphan unrelated --quiet
+    if ($LASTEXITCODE -ne 0) { throw 'Could not create unrelated development history.' }
+    & git -C $wrongBranch.Root -c user.name='ForwardTrust Fixture' -c user.email='fixture@example.invalid' commit --quiet -m 'unrelated history'
+    if ($LASTEXITCODE -ne 0) { throw 'Could not commit unrelated history.' }
+    Invoke-Lifecycle $wrongBranch.Root '0.1.0' '' $false 'development tag must be an ancestor'
+
+    $developmentCommit = New-ReleaseFixture 'development-expectations' '0.1.0' $firstReleaseText 'v0.1.0' $true
+    Add-SecondCommit $developmentCommit
+    foreach ($arguments in @(@('-ExpectedTag', 'v0.2.0'), @('-ExpectedCommit', ('0' * 40)), @('-ExpectedReleaseDate', $developmentCommit.Date))) {
+        Invoke-NestedPwsh -NoProfile -File $packageGate -Stage Changelog -RepositoryRoot $developmentCommit.Root -ExpectedVersion 0.1.0 -ExpectedPackageVersion 0.1.0 @arguments
+        Assert-Result "development rejects contradictory release expectations: $arguments" $false
+    }
+
     $untagged = New-ReleaseFixture 'untagged-release' '0.1.0' $firstReleaseText
     Invoke-ReleaseContract $untagged.Root '0.1.0' '0.1.0' 'v0.1.0' $untagged.Commit $untagged.Date $true $false 'tag mode rejects an untagged finalization candidate'
 
@@ -409,6 +497,9 @@ try {
     $wrongTagCommit = New-ReleaseFixture 'wrong-tag-commit' '0.1.0' $firstReleaseText 'v0.1.0' $true
     Add-SecondCommit $wrongTagCommit
     Invoke-ReleaseContract $wrongTagCommit.Root '0.1.0' '0.1.0' 'v0.1.0' $wrongTagCommit.Commit $wrongTagCommit.Date $true $false 'tag must point to exact finalization SHA'
+    Invoke-WorkflowLifecycle $wrongTagCommit.Root '0.1.0' $true $false 'release CI propagates exact commit mismatch'
+    Invoke-WorkflowLifecycle $wrongPackage.Root '0.1.0' $true $false 'release CI propagates source version mismatch'
+    Invoke-WorkflowLifecycle $wrongTag.Root '0.1.1' $true $false 'release CI propagates tag version mismatch'
 
     $strandedText = @'
 # Changelog
@@ -450,7 +541,7 @@ try {
     Assert-Result 'default All stage propagates changelog failure before build/cleanup' $false
     if (-not (Test-Path -LiteralPath $artifactSentinel)) { throw 'Invalid changelog reached artifact cleanup.' }
 
-    Write-Output 'Changelog contract tests passed: candidate/finalized states, heading uniqueness, first-release category and remediation rules, tag/SHA behavior, version/date mismatches, and stranded Unreleased changes.'
+    Write-Output 'Changelog contract tests passed: unreleased/development/finalized/tagged selection, LF/CRLF published-history preservation, actual CI/release lifecycle commands, planned-target rejection, heading/category/remediation rules, version/date/tag/SHA mismatches, and failure propagation.'
 }
 finally {
     $resolvedScratch = [IO.Path]::GetFullPath($scratchRoot).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar

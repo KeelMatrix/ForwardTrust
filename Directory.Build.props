@@ -12,7 +12,6 @@
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <Deterministic>true</Deterministic>
     <DeterministicSourcePaths>true</DeterministicSourcePaths>
-    <PathMap>$(MSBuildProjectDirectory)=/_/</PathMap>
     <ContinuousIntegrationBuild Condition="'$(Configuration)' == 'Release' Or '$(CI)' == 'true'">true</ContinuousIntegrationBuild>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>

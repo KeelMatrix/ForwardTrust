@@ -3,7 +3,7 @@ param(
     [string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot),
     [Parameter(Mandatory = $true)][string]$ExpectedVersion,
     [Parameter(Mandatory = $true)][string]$ExpectedPackageVersion,
-    [ValidateSet('Auto', 'Unreleased', 'Finalized', 'Tagged')][string]$State = 'Auto',
+    [ValidateSet('Auto', 'Unreleased', 'Development', 'Finalized', 'Tagged')][string]$State = 'Auto',
     [string]$ExpectedTag,
     [string]$ExpectedCommit,
     [string]$ExpectedReleaseDate,
@@ -15,6 +15,11 @@ $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path -LiteralPath $RepositoryRoot).Path
 $changelog = Get-Content -LiteralPath (Join-Path $root 'CHANGELOG.md') -Raw
 if ($ExpectedVersion -notmatch '^\d+\.\d+\.\d+$') { throw 'ExpectedVersion must be a stable X.Y.Z version.' }
+$props = Get-Content -LiteralPath (Join-Path $root 'Directory.Build.props') -Raw
+$versions = [regex]::Matches($props, '<Version>(?<version>[^<]+)</Version>')
+if ($versions.Count -ne 1 -or $versions[0].Groups['version'].Value -cne $ExpectedPackageVersion -or $ExpectedPackageVersion -cne $ExpectedVersion) {
+    throw 'Source, expected and package versions must match.'
+}
 $headings = [regex]::Matches($changelog, '(?m)^## (?<heading>[^\r\n]+)')
 if ($headings.Count -eq 0 -or $headings[0].Groups['heading'].Value -cne '[Unreleased]') {
     throw 'Changelog must begin with an Unreleased section.'
@@ -38,7 +43,13 @@ if ($State -eq 'Auto') {
     if ($seenVersions.Contains($ExpectedVersion)) {
         git -C $root show-ref --verify --quiet "refs/tags/v$ExpectedVersion"
         if ($LASTEXITCODE -notin @(0, 1)) { throw 'Could not determine whether the release tag exists.' }
-        $State = if ($LASTEXITCODE -eq 0) { 'Tagged' } else { 'Finalized' }
+        if ($LASTEXITCODE -eq 0) {
+            $tagCommit = git -C $root rev-list -n 1 "refs/tags/v$ExpectedVersion"
+            if ($LASTEXITCODE -ne 0) { throw 'Could not resolve the release tag commit.' }
+            $head = git -C $root rev-parse HEAD
+            if ($LASTEXITCODE -ne 0) { throw 'Could not resolve the development commit.' }
+            $State = if ($head -ceq $tagCommit) { 'Tagged' } else { 'Development' }
+        } else { $State = 'Finalized' }
     } else {
         $State = 'Unreleased'
     }
@@ -52,6 +63,35 @@ if ($State -eq 'Unreleased') {
         if ($LASTEXITCODE -ne 1) { throw 'Could not check the candidate tag.' }
     }
     Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'validate-candidate-changelog.ps1') -RepositoryRoot $root -ExpectedVersion $ExpectedVersion -ExpectedPackageVersion $ExpectedPackageVersion
+} elseif ($State -eq 'Development') {
+    if ($ExpectedTag -and $ExpectedTag -cne "v$ExpectedVersion") { throw 'Development baseline tag must match the package version.' }
+    $tagReference = "refs/tags/v$ExpectedVersion"
+    $tagCommit = git -C $root rev-list -n 1 $tagReference
+    if ($LASTEXITCODE -ne 0) { throw 'Development validation requires the published version tag; fetch complete history and tags.' }
+    $head = git -C $root rev-parse HEAD
+    if ($LASTEXITCODE -ne 0) { throw 'Could not resolve the development commit.' }
+    if ($head -ceq $tagCommit) { throw 'The exact release commit must use Tagged validation.' }
+    if ($ExpectedCommit -and $ExpectedCommit -cne $head) { throw 'Development commit does not match ExpectedCommit.' }
+    if ($ExpectedReleaseDate) { throw 'Development validation cannot assert a new release date.' }
+    git -C $root merge-base --is-ancestor $tagCommit $head
+    if ($LASTEXITCODE -ne 0) { throw 'The published version tag must be an ancestor of the development commit.' }
+    $publishedChangelog = (git -C $root show "${tagReference}:CHANGELOG.md") -join "`n"
+    if ($LASTEXITCODE -ne 0) { throw 'Could not read the published changelog.' }
+    $publishedProps = (git -C $root show "${tagReference}:Directory.Build.props") -join "`n"
+    if ($LASTEXITCODE -ne 0) { throw 'Could not read the published package version.' }
+    $publishedVersions = [regex]::Matches($publishedProps, '<Version>(?<version>[^<]+)</Version>')
+    if ($publishedVersions.Count -ne 1 -or $publishedVersions[0].Groups['version'].Value -cne $ExpectedVersion) {
+        throw 'Published tag version does not match the development package version.'
+    }
+    # Only Unreleased may change. Compare the complete published history, allowing checkout newline conversion.
+    $historyPattern = '(?ms)^## \[\d+\.\d+\.\d+\].*\z'
+    $history = [regex]::Match(($changelog -replace "`r`n", "`n").TrimEnd("`n"), $historyPattern).Value
+    $publishedHistory = [regex]::Match($publishedChangelog.TrimEnd("`n"), $historyPattern).Value
+    if (-not $seenVersions.Contains($ExpectedVersion) -or -not $publishedHistory -or $history -cne $publishedHistory) {
+        throw 'Development validation must preserve the complete published changelog history.'
+    }
+    Write-Output "Development package only: version=$ExpectedVersion commit=$head publishedBaseline=$tagCommit; not a published release."
+    $global:LASTEXITCODE = 0
 } else {
     if (-not $ExpectedTag) { $ExpectedTag = "v$ExpectedVersion" }
     if (-not $ExpectedCommit) {

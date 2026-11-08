@@ -7,6 +7,7 @@
 - `smoke/ForwardTrust.Consumer` is a non-packable PackageReference consumer used against the built package.
 - `docs/compatibility.md` records the supported net8.0 servicing facts and peer-simulation seam.
 - `scripts/` contains the package gate and changelog/version contract checks.
+- `tools/SourceLinkCheck` is a non-packable archive verifier used by the shared package gate; see `docs/DEV.md` for source and symbol checks.
 
 ## Commands
 
@@ -37,6 +38,7 @@ pwsh -NoProfile -File scripts/package-gate.ps1
 - `ForwardLimitMismatch` requires a failed asserted dimension whose own forwarded-header chain contains multiple values.
 - Trusted proxy/network configuration remains the application's responsibility; broad trust is never a recommended fix.
 - The package includes `icon.png` from the repository root; it must be a 512x512 PNG no larger than 200 KB.
+- The shared changelog validator distinguishes development after publication from the exact tagged release; preserve published history and keep release validation strict. See `docs/DEV.md`.
 
 ## Validation strategy
 

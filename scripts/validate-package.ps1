@@ -3,7 +3,8 @@ param(
     [string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot),
     [Parameter(Mandatory = $true)][string]$PackageDirectory,
     [Parameter(Mandatory = $true)][string]$ExpectedVersion,
-    [switch]$RequireIcon
+    [switch]$RequireIcon,
+    [switch]$ResolveSourceUrls
 )
 
 $ErrorActionPreference = 'Stop'
@@ -201,3 +202,9 @@ function Assert-Snupkg($path) {
 $nupkgEntries = Assert-Nupkg $nupkgPath
 $snupkgEntries = Assert-Snupkg $snupkgPath
 Write-Output "Package archive validation passed: nupkg=$nupkgEntries entries; snupkg=$snupkgEntries entries; id=$packageId; version=$ExpectedVersion; tfm=net8.0; iconIncluded=$iconIncluded; iconRequired=$RequireIcon"
+
+$sourceArguments = @('run', '--project', (Join-Path $root 'tools/SourceLinkCheck/SourceLinkCheck.csproj'),
+    '-c', 'Release', '--no-build', '--', $nupkgPath, $snupkgPath, $root)
+if ($ResolveSourceUrls) { $sourceArguments += '--resolve-urls' }
+& dotnet @sourceArguments
+if ($LASTEXITCODE -ne 0) { throw 'Packed SourceLink, source checksum, or DLL/PDB validation failed.' }

@@ -4,10 +4,11 @@ param(
     [ValidateSet('All', 'Changelog')][string]$Stage = 'All',
     [string]$ExpectedVersion = '0.1.0',
     [string]$ExpectedPackageVersion = '0.1.0',
-    [ValidateSet('Auto', 'Unreleased', 'Finalized', 'Tagged')][string]$ChangelogState = 'Auto',
+    [ValidateSet('Auto', 'Unreleased', 'Development', 'Finalized', 'Tagged')][string]$ChangelogState = 'Auto',
     [string]$ExpectedTag,
     [string]$ExpectedCommit,
-    [string]$ExpectedReleaseDate
+    [string]$ExpectedReleaseDate,
+    [switch]$ResolveSourceUrls
 )
 
 $ErrorActionPreference = 'Stop'
@@ -80,7 +81,11 @@ Invoke-Step 'pwsh -NoProfile -File scripts/test-changelog-contract.ps1 -Expected
 $nupkg = Join-Path $packages 'KeelMatrix.ForwardTrust.0.1.0.nupkg'
 $snupkg = Join-Path $packages 'KeelMatrix.ForwardTrust.0.1.0.snupkg'
 Invoke-Step 'pwsh -NoProfile -File scripts/validate-package.ps1 -PackageDirectory artifacts/packages -ExpectedVersion 0.1.0' {
-    Invoke-NestedPwsh -NoProfile -File scripts/validate-package.ps1 -PackageDirectory $packages -ExpectedVersion 0.1.0
+    Invoke-NestedPwsh -NoProfile -File scripts/validate-package.ps1 -PackageDirectory $packages -ExpectedVersion 0.1.0 -ResolveSourceUrls: $ResolveSourceUrls
+}
+
+Invoke-Step 'pwsh -NoProfile -File scripts/Test-SourceLinkContract.ps1 -PackageDirectory artifacts/packages -ExpectedVersion 0.1.0' {
+    Invoke-NestedPwsh -NoProfile -File scripts/Test-SourceLinkContract.ps1 -PackageDirectory $packages -ExpectedVersion 0.1.0
 }
 
 Invoke-Step 'pwsh -NoProfile -File scripts/validate-quickstart.ps1 -PackagePath artifacts/packages/KeelMatrix.ForwardTrust.0.1.0.nupkg -ExpectedVersion 0.1.0' {

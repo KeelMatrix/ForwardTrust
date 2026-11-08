@@ -2,6 +2,8 @@
 
 ## Development
 
+See [the development guide](docs/DEV.md) for the full package gate and source/symbol regression checks.
+
 Install the .NET 8 SDK selected by `global.json`, then run commands from the repository root:
 
 ```powershell

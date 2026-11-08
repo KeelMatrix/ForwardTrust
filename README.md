@@ -4,6 +4,8 @@ KeelMatrix.ForwardTrust turns an ASP.NET Core application's forwarded-header tru
 
 ## Install
 
+For contributor package and source/symbol validation, see [the development guide](docs/DEV.md#source-and-symbol-validation).
+
 ```bash
 dotnet new xunit --framework net8.0 --name ForwardTrust.Tests
 cd ForwardTrust.Tests
