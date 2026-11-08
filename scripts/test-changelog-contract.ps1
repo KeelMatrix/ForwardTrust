@@ -247,7 +247,7 @@ try {
 - Initial consumer-facing package capabilities.
 '@
     Invoke-CandidateContract $firstCandidate '0.1.0' $true 'first-release Unreleased candidate'
-    Invoke-NestedPwsh -NoProfile -File $packageGate -Stage Changelog -RepositoryRoot $firstCandidate
+    Invoke-NestedPwsh -NoProfile -File $packageGate -Stage Changelog -RepositoryRoot $firstCandidate -ExpectedVersion 0.1.0 -ExpectedPackageVersion 0.1.0
     Assert-Result 'automatic unreleased package gate' $true
 
     $subsequentCandidate = Join-Path $tempRoot 'subsequent-candidate'
@@ -305,12 +305,12 @@ try {
 '@
     $firstRelease = New-ReleaseFixture 'first-release' '0.1.0' $firstReleaseText
     Invoke-ReleaseContract $firstRelease.Root '0.1.0' '0.1.0' 'v0.1.0' $firstRelease.Commit $firstRelease.Date $false $true 'first-release finalization before tag'
-    Invoke-NestedPwsh -NoProfile -File $packageGate -Stage Changelog -RepositoryRoot $firstRelease.Root
+    Invoke-NestedPwsh -NoProfile -File $packageGate -Stage Changelog -RepositoryRoot $firstRelease.Root -ExpectedVersion 0.1.0 -ExpectedPackageVersion 0.1.0
     Assert-Result 'automatic finalized package gate' $true
     & git -C $firstRelease.Root tag 'v0.1.0' $firstRelease.Commit
     if ($LASTEXITCODE -ne 0) { throw 'Could not create first-release tag fixture.' }
     Invoke-ReleaseContract $firstRelease.Root '0.1.0' '0.1.0' 'v0.1.0' $firstRelease.Commit $firstRelease.Date $true $true 'first-release exact tag SHA'
-    Invoke-NestedPwsh -NoProfile -File $packageGate -Stage Changelog -RepositoryRoot $firstRelease.Root
+    Invoke-NestedPwsh -NoProfile -File $packageGate -Stage Changelog -RepositoryRoot $firstRelease.Root -ExpectedVersion 0.1.0 -ExpectedPackageVersion 0.1.0
     Assert-Result 'automatic exact-tag package gate' $true
     Invoke-WorkflowLifecycle $firstRelease.Root '0.1.0' $true $true 'release workflow exact tagged commit'
     Invoke-ReleaseContract $firstRelease.Root '0.1.0-preview' '0.1.0-preview' 'v0.1.0-preview' $firstRelease.Commit $firstRelease.Date $true $false 'invalid stable version'
