@@ -40,9 +40,12 @@ Run the source check and isolated negative fixtures with:
 ```powershell
 pwsh -NoProfile -File scripts/package-gate.ps1 -Stage WebsiteMetadata
 pwsh -NoProfile -File scripts/Test-WebsiteMetadata.ps1
+pwsh -NoProfile -File scripts/Test-WebsiteMetadata.ps1 -ProjectSelectionOnly
 ```
 
 `scripts/validate-website-metadata.ps1` strictly checks the manifest, evaluates Release properties through MSBuild (including inherited properties and project overrides), and compares classification, IDs, tags, and canonical URLs with both built archives when supplied. The full package gate runs the source check and negative fixtures before restore. Three-OS CI uses that gate. The release workflow also checks source metadata before restore, and `validate-package.ps1` checks the actual `.nupkg` and `.snupkg` before publication authentication. Any mismatch fails the calling gate. Fixtures cover malformed and duplicate manifest fields, sentinel absence/duplication/conflicts/casing, source/manifest/archive disagreement, primary cardinality, URL errors and child-process failure propagation through the local and workflow entry points.
+
+Project selection covers C#, VB and F# projects throughout the repository, including root, test, smoke, example and tool directories. It prunes `.git`, `bin`, `obj` and `artifacts` directories. Only `src/KeelMatrix.ForwardTrust/KeelMatrix.ForwardTrust.csproj` may be packable in Release; all helpers must evaluate as non-packable. A helper with the shipping package ID cannot replace the shipping project. Evaluation errors fail validation. The focused `-ProjectSelectionOnly` fixtures exercise real SDK evaluation, Boolean casing, SDK defaults, Release conditions, inherited props/targets, project overrides, generated-directory exclusions and native source-stage failures. The full fixtures also prove local, CI, release and archive-gate failure propagation for an unexpected packable helper.
 
 ## Source and symbol validation
 

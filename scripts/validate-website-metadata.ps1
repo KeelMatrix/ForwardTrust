@@ -73,13 +73,30 @@ try {
 }
 
 $sourcePackages = [Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
-$projects = @(Get-ChildItem -LiteralPath (Join-Path $root 'src') -Recurse -Filter '*.csproj' -File |
-    Where-Object { $_.FullName -notmatch '[/\\](bin|obj)[/\\]' })
+# Select projects before inspecting their effective Release properties. Helpers can live
+# anywhere in the repository; generated/output directories are not source projects.
+function Get-WebsiteProjects([string]$Directory) {
+    foreach ($entry in Get-ChildItem -LiteralPath $Directory -Force) {
+        if ($entry.PSIsContainer) {
+            if ($entry.Name -notin @('.git', 'bin', 'obj', 'artifacts')) {
+                Get-WebsiteProjects $entry.FullName
+            }
+        } elseif ($entry.Extension -in @('.csproj', '.vbproj', '.fsproj')) {
+            $entry
+        }
+    }
+}
+$shippingProject = 'src/KeelMatrix.ForwardTrust/KeelMatrix.ForwardTrust.csproj'
+$projects = @(Get-WebsiteProjects $root | Sort-Object FullName)
 foreach ($project in $projects) {
+    $relativePath = [IO.Path]::GetRelativePath($root, $project.FullName).Replace('\', '/')
     $evaluation = & dotnet msbuild $project.FullName -nologo -property:Configuration=Release '-getProperty:IsPackable,PackageId,PackageTags,PackageProjectUrl,RepositoryUrl,RepositoryType'
-    if ($LASTEXITCODE -ne 0) { throw 'Website metadata source evaluation failed.' }
+    if ($LASTEXITCODE -ne 0) { throw "Website metadata source evaluation failed: $relativePath" }
     $properties = (($evaluation -join "`n") | ConvertFrom-Json -AsHashtable).Properties
     if ($properties.IsPackable -ne 'true') { continue }
+    if ($relativePath -cne $shippingProject) {
+        throw "Unexpected packable project: $relativePath. Only $shippingProject may be packable in Release."
+    }
     if ($properties.PackageId -cne $packageId) { throw 'Source package ID does not match the manifest.' }
     if (-not $sourcePackages.TryAdd($properties.PackageId, $properties)) { throw 'Duplicate source package ID.' }
     $sourceTags = Assert-WebsiteTags $properties.PackageTags $visibility $role 'Source PackageTags'

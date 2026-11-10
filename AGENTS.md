@@ -28,6 +28,7 @@ pwsh -NoProfile -File scripts/Test-WebsiteMetadata.ps1
 
 - The only shipping package is `KeelMatrix.ForwardTrust`, targeting `net8.0`.
 - Website classification is `public-product`/`primary` in the root manifest and exact lowercase NuGet sentinels. Project and repository URLs are `https://github.com/KeelMatrix/ForwardTrust`.
+- Website validation evaluates Release packability for all repository C#, VB and F# projects outside `.git`, `bin`, `obj` and `artifacts`. Only `src/KeelMatrix.ForwardTrust/KeelMatrix.ForwardTrust.csproj` may be packable; tests, consumers, samples and tools must remain non-packable.
 - Verification is read-only with respect to the caller's application configuration; it never rewrites `ForwardedHeadersOptions`.
 - Scenario validation is complete before any request executes.
 - Accepted expectations correspond to original forwarded values in every asserted dimension; controls prove a reproducible change at an effective consumed hop, including partial chains.

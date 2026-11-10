@@ -7,6 +7,7 @@ All notable changes to KeelMatrix.ForwardTrust are documented here.
 ### Fixed
 
 - Restores package discovery metadata through a repository classification manifest; future releases also carry matching NuGet classification tags.
+- Rejects accidentally packable helper projects during metadata validation across repository directories and C#, VB and F# project types.
 
 ## [0.1.1] - 2026-11-08
 

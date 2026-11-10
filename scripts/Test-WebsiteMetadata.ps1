@@ -1,5 +1,8 @@
 [CmdletBinding()]
-param([string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot))
+param(
+    [string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot),
+    [switch]$ProjectSelectionOnly
+)
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '../build/Invoke-NestedPwsh.ps1')
@@ -7,9 +10,10 @@ $root = (Resolve-Path -LiteralPath $RepositoryRoot).Path
 $validator = Join-Path $PSScriptRoot 'validate-website-metadata.ps1'
 $scratchParent = Join-Path $root 'artifacts'
 $fixture = Join-Path $scratchParent ('website-metadata-' + [guid]::NewGuid().ToString('N'))
-$projectDirectory = Join-Path $fixture 'src/Product'
-$project = Join-Path $projectDirectory 'Product.csproj'
+$projectDirectory = Join-Path $fixture 'src/KeelMatrix.ForwardTrust'
+$project = Join-Path $projectDirectory 'KeelMatrix.ForwardTrust.csproj'
 $props = Join-Path $fixture 'Directory.Build.props'
+$targets = Join-Path $fixture 'Directory.Build.targets'
 $manifestPath = Join-Path $fixture 'keelmatrix.website.json'
 $archivePath = Join-Path $fixture 'KeelMatrix.ForwardTrust.0.1.1.nupkg'
 $tags = 'testing;keelmatrix-public-product;keelmatrix-primary'
@@ -24,6 +28,7 @@ function Write-Fixture([string]$Path, [string]$Content) {
 }
 
 function Reset-Fixture {
+    if (Test-Path -LiteralPath $targets) { Remove-Item -LiteralPath $targets }
     Write-Fixture $manifestPath $manifest
     Write-Fixture $props $source
     Write-Fixture $project '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>'
@@ -68,6 +73,121 @@ function Test-EntryPoint([string]$Name, [string]$Command, [string]$Message) {
 }
 
 try {
+    # Real SDK evaluations: location and language must not hide an effective packable helper.
+    foreach ($directory in @('', 'src/Helper', 'tests/Helper', 'smoke/Helper', 'examples/Helper', 'tools/Helper')) {
+        foreach ($extension in @('csproj', 'vbproj', 'fsproj')) {
+            Reset-Fixture
+            $helperDirectory = if ($directory) { Join-Path $fixture $directory } else { $fixture }
+            New-Item -ItemType Directory -Path $helperDirectory -Force | Out-Null
+            $helper = Join-Path $helperDirectory "Helper.$extension"
+            Write-Fixture $helper '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net8.0</TargetFramework><PackageId>KeelMatrix.Helper</PackageId><PackageTags>testing</PackageTags></PropertyGroup></Project>'
+            try { Test-Fixture "packable $directory/Helper.$extension" $false 'Unexpected packable project' }
+            finally { Remove-Item -LiteralPath $helper }
+        }
+    }
+    foreach ($extension in @('csproj', 'vbproj', 'fsproj')) {
+        $helperDirectory = Join-Path $fixture 'tests/Helper'
+        $helper = Join-Path $helperDirectory "Helper.$extension"
+        $cases = @(
+            @('true', '<IsPackable>true</IsPackable>', '', $false),
+            @('True', '<IsPackable>True</IsPackable>', '', $false),
+            @('TRUE', '<IsPackable>TRUE</IsPackable>', '', $false),
+            @('false', '<IsPackable>false</IsPackable>', '', $true),
+            @('False', '<IsPackable>False</IsPackable>', '', $true),
+            @('FALSE', '<IsPackable>FALSE</IsPackable>', '', $true),
+            @('SDK default', '', '', $false),
+            @('Release enabled', '<IsPackable>false</IsPackable><IsPackable Condition="''$(Configuration)'' == ''Release''">True</IsPackable>', '', $false),
+            @('Release disabled', '<IsPackable>true</IsPackable><IsPackable Condition="''$(Configuration)'' == ''Release''">FALSE</IsPackable>', '', $true),
+            @('targets enabled', '<IsPackable>false</IsPackable>', 'True', $false),
+            @('targets disabled', '<IsPackable>true</IsPackable>', 'FALSE', $true),
+            @('inherited Release enabled', '', '', $false),
+            @('inherited Release disabled', '', '', $true),
+            @('project overrides inherited false', '<IsPackable>True</IsPackable>', '', $false)
+        )
+        foreach ($case in $cases) {
+            Reset-Fixture
+            if ($case[0] -eq 'SDK default') { Write-Fixture $props ($source.Replace('<IsPackable>true</IsPackable>', '')) }
+            if ($case[0] -like 'inherited Release*') {
+                $releaseValue = if ($case[3]) { 'FALSE' } else { 'True' }
+                $inherited = '<PropertyGroup Condition="''$(MSBuildProjectName)'' == ''Helper''"><IsPackable>false</IsPackable><IsPackable Condition="''$(Configuration)'' == ''Release''">' + $releaseValue + '</IsPackable></PropertyGroup>'
+                Write-Fixture $props ($source.Replace('</Project>', "$inherited</Project>"))
+            }
+            if ($case[0] -eq 'project overrides inherited false') {
+                Write-Fixture $props ($source.Replace('<IsPackable>true</IsPackable>', '<IsPackable>FALSE</IsPackable>'))
+                Write-Fixture $project '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net8.0</TargetFramework><IsPackable>true</IsPackable></PropertyGroup></Project>'
+            }
+            Write-Fixture $helper ('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net8.0</TargetFramework><PackageId>KeelMatrix.Helper</PackageId><PackageTags>testing</PackageTags>' + $case[1] + '</PropertyGroup></Project>')
+            if ($case[2]) {
+                Write-Fixture $targets ('<Project><PropertyGroup Condition="''$(MSBuildProjectName)'' == ''Helper''"><IsPackable>' + $case[2] + '</IsPackable></PropertyGroup></Project>')
+            }
+            try { Test-Fixture "$extension $($case[0])" $case[3] 'Unexpected packable project' }
+            finally { Remove-Item -LiteralPath $helper }
+        }
+        Reset-Fixture
+        $upperHelper = Join-Path $helperDirectory ('Helper.' + $extension.ToUpperInvariant())
+        Write-Fixture $upperHelper '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net8.0</TargetFramework><PackageId>KeelMatrix.Helper</PackageId></PropertyGroup></Project>'
+        try { Test-Fixture "$extension uppercase extension" $false 'Unexpected packable project' }
+        finally { Remove-Item -LiteralPath $upperHelper }
+
+        # Nonpackable helpers in every source location may omit all package metadata.
+        $helpers = @()
+        foreach ($directory in @('', 'src/Helper', 'tests/Helper', 'smoke/Helper', 'examples/Helper', 'tools/Helper')) {
+            $helper = Join-Path $fixture "$directory/Helper.$extension"
+            Write-Fixture $helper '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net8.0</TargetFramework><IsPackable>FALSE</IsPackable><PackageId>Unclassified</PackageId><PackageTags /></PropertyGroup></Project>'
+            $helpers += $helper
+        }
+        try { Test-Fixture "$extension nonpackable helpers in every directory" $true }
+        finally { $helpers | ForEach-Object { Remove-Item -LiteralPath $_ } }
+
+        foreach ($invalidProject in @('<Project', '<Project Sdk="Microsoft.NET.Sdk"><Import Project="missing-required.props" /></Project>')) {
+            Write-Fixture $helper $invalidProject
+            try { Test-Fixture "$extension evaluation failure" $false 'source evaluation failed' }
+            finally { Remove-Item -LiteralPath $helper }
+        }
+        Write-Fixture $helper '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>'
+        $quotedGate = (Join-Path $PSScriptRoot 'package-gate.ps1').Replace("'", "''")
+        $quotedRoot = $fixture.Replace("'", "''")
+        try { Test-EntryPoint "$extension native metadata stage rejects helper with matching package ID" "& '$quotedGate' -RepositoryRoot '$quotedRoot' -Stage WebsiteMetadata" 'Website metadata source gate failed' }
+        finally { Remove-Item -LiteralPath $helper }
+    }
+    Reset-Fixture
+    $excluded = @()
+    foreach ($directory in @('.git', 'bin', 'obj', 'artifacts', 'tests/Helper/bin', 'tools/Helper/obj', 'examples/Helper/artifacts')) {
+        $excludedDirectory = Join-Path $fixture $directory
+        New-Item -ItemType Directory -Path $excludedDirectory -Force | Out-Null
+        foreach ($extension in @('csproj', 'vbproj', 'fsproj')) {
+            $excludedProject = Join-Path $excludedDirectory "Invalid.$extension"
+            Write-Fixture $excludedProject '<Project'
+            $excluded += $excludedProject
+        }
+    }
+    try { Test-Fixture 'generated and git directories are pruned' $true }
+    finally { $excluded | ForEach-Object { Remove-Item -LiteralPath $_ } }
+
+    Reset-Fixture
+    $replacement = Join-Path $fixture 'tests/Helper/Helper.csproj'
+    Write-Fixture $project '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net8.0</TargetFramework><IsPackable>false</IsPackable></PropertyGroup></Project>'
+    Write-Fixture $replacement '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>'
+    try { Test-Fixture 'matching-ID helper cannot replace disabled shipping project' $false 'Unexpected packable project' }
+    finally { Remove-Item -LiteralPath $replacement }
+    foreach ($value in @('True', 'TRUE')) {
+        Reset-Fixture
+        Write-Fixture $props ($source.Replace('<IsPackable>true</IsPackable>', "<IsPackable>$value</IsPackable>"))
+        Test-Fixture "shipping packability $value" $true
+    }
+    foreach ($case in @(
+            @('PackageTags', 'testing', 'exactly one visibility'),
+            @('PackageId', 'KeelMatrix.Other', 'Source package ID'),
+            @('RepositoryUrl', 'https://example.org/Other', 'canonical project/repository URL'),
+            @('IsPackable', 'FALSE', 'exactly one shipping source'))) {
+        Reset-Fixture
+        Write-Fixture $targets ('<Project><PropertyGroup Condition="''$(Configuration)'' == ''Release''"><' + $case[0] + '>' + $case[1] + '</' + $case[0] + '></PropertyGroup></Project>')
+        Test-Fixture "shipping Release targets override $($case[0])" $false $case[2]
+    }
+    if ($ProjectSelectionOnly) {
+        Write-Output "Website project selection passed: $passed fixtures."
+        return
+    }
     $longDiagnostic = 'Manifest classification contains an unknown or incorrectly cased property. This complete diagnostic must survive a narrow terminal without presentation markup.'
     $output = Invoke-FixtureCommand "throw '$longDiagnostic'"
     if ($LASTEXITCODE -ne 1 -or "$output" -cne $longDiagnostic) { throw 'Raw exception diagnostic was changed by error rendering.' }
@@ -166,7 +286,7 @@ try {
     Reset-Fixture
     $sibling = Join-Path $projectDirectory 'Sibling.csproj'
     Write-Fixture $sibling '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>'
-    Test-Fixture 'duplicate shipping source ID' $false 'Duplicate source package ID'
+    Test-Fixture 'duplicate shipping source ID' $false 'Unexpected packable project'
     Remove-Item -LiteralPath $sibling
 
     Reset-Fixture
@@ -187,13 +307,14 @@ try {
 
     # Exercise the commands used by local development and both workflows, with real child exits.
     Reset-Fixture
-    Write-Fixture $props ($source.Replace($tags, 'testing'))
+    $helper = Join-Path $fixture 'tests/Helper/Helper.vbproj'
+    Write-Fixture $helper '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net8.0</TargetFramework><PackageId>KeelMatrix.Helper</PackageId><PackageTags>testing</PackageTags></PropertyGroup></Project>'
     $quotedRoot = $fixture.Replace("'", "''")
     $quotedGate = (Join-Path $PSScriptRoot 'package-gate.ps1').Replace("'", "''")
     Test-EntryPoint 'local full gate stops before restore' "& '$quotedGate' -RepositoryRoot '$quotedRoot'" 'Website metadata source gate failed'
     foreach ($entry in @(
             @('.github/workflows/ci.yml', 'Run package and repository hygiene gates', './scripts/package-gate.ps1', 'Website metadata source gate failed'),
-            @('.github/workflows/release.yml', 'Validate website metadata', './scripts/validate-website-metadata.ps1', 'exactly one visibility'))) {
+            @('.github/workflows/release.yml', 'Validate website metadata', './scripts/validate-website-metadata.ps1', 'Unexpected packable project'))) {
         $workflow = [IO.File]::ReadAllText((Join-Path $root $entry[0]))
         $pattern = '(?m)^      - name: ' + [regex]::Escape($entry[1]) + '\r?\n        shell: pwsh\r?\n        run: (?<command>[^\r\n]+)'
         $match = [regex]::Match($workflow, $pattern)
@@ -202,6 +323,9 @@ try {
         $command = $match.Groups['command'].Value.Replace($entry[2], "& '$scriptPath' -RepositoryRoot '$quotedRoot'")
         Test-EntryPoint $entry[1] $command $entry[3]
     }
+    $quotedPackageValidator = (Join-Path $PSScriptRoot 'validate-package.ps1').Replace("'", "''")
+    Test-EntryPoint 'shared archive gate rejects packable helper before archive inspection' "& '$quotedPackageValidator' -RepositoryRoot '$quotedRoot' -PackageDirectory '$quotedRoot' -ExpectedVersion 0.1.1" 'Unexpected packable project'
+    Remove-Item -LiteralPath $helper
     Reset-Fixture
     Write-Archive ($nuspec.Replace($tags, 'testing'))
     $quotedPackageValidator = (Join-Path $PSScriptRoot 'validate-package.ps1').Replace("'", "''")
