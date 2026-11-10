@@ -38,10 +38,16 @@ function Assert-Result([string]$Name, [int]$Code, $Output, [bool]$ShouldPass, [s
 }
 
 function Test-Fixture([string]$Name, [bool]$ShouldPass, [string]$Message, [string]$Archive) {
-    $arguments = @('-NoProfile', '-File', $validator, '-RepositoryRoot', $fixture)
-    if ($Archive) { $arguments += @('-PackagePath', $Archive) }
-    $output = Invoke-NestedPwsh @arguments 2>&1
+    $command = "& '$($validator.Replace("'", "''"))' -RepositoryRoot '$($fixture.Replace("'", "''"))'"
+    if ($Archive) { $command += " -PackagePath '$($Archive.Replace("'", "''"))'" }
+    $output = Invoke-FixtureCommand $command
     Assert-Result $Name $LASTEXITCODE $output $ShouldPass $Message
+}
+
+function Invoke-FixtureCommand([string]$Command) {
+    # Capture the exception itself; rendered PowerShell errors depend on terminal width and OS.
+    $wrapper = 'try { ' + $Command + ' } catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }'
+    Invoke-NestedPwsh -NoProfile -Command $wrapper 2>&1
 }
 
 function Write-Archive([string]$Content, [string]$Path = $archivePath) {
@@ -57,11 +63,16 @@ function Write-Archive([string]$Content, [string]$Path = $archivePath) {
 }
 
 function Test-EntryPoint([string]$Name, [string]$Command, [string]$Message) {
-    $output = Invoke-NestedPwsh -NoProfile -Command $Command 2>&1
+    $output = Invoke-FixtureCommand $Command
     Assert-Result $Name $LASTEXITCODE $output $false $Message
 }
 
 try {
+    $longDiagnostic = 'Manifest classification contains an unknown or incorrectly cased property. This complete diagnostic must survive a narrow terminal without presentation markup.'
+    $output = Invoke-FixtureCommand "throw '$longDiagnostic'"
+    if ($LASTEXITCODE -ne 1 -or "$output" -cne $longDiagnostic) { throw 'Raw exception diagnostic was changed by error rendering.' }
+    $passed++
+    Write-Output 'PASS: raw child exception diagnostic preserves long messages'
     Reset-Fixture
     Test-Fixture 'valid inherited source metadata' $true
     Write-Fixture $props ($source.Replace($tags, 'testing; keelmatrix-public-product keelmatrix-primary'))
