@@ -22,7 +22,7 @@
     <RepositoryType>git</RepositoryType>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/KeelMatrix/ForwardTrust</RepositoryUrl>
-    <PackageProjectUrl>https://github.com/KeelMatrix/ForwardTrust#readme</PackageProjectUrl>
+    <PackageProjectUrl>https://github.com/KeelMatrix/ForwardTrust</PackageProjectUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon Condition="Exists('$(MSBuildThisFileDirectory)icon.png')">icon.png</PackageIcon>
     <IncludeSymbols>true</IncludeSymbols>

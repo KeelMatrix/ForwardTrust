@@ -4,6 +4,8 @@ KeelMatrix.ForwardTrust turns an ASP.NET Core application's forwarded-header tru
 
 For contributor package and source/symbol validation, see [the development guide](docs/DEV.md#source-and-symbol-validation).
 
+ForwardTrust is a public product. Its [classification manifest](keelmatrix.website.json) supports automatic package discovery, including published versions that predate the classification tags. See [metadata validation](docs/DEV.md#website-metadata) for contributor checks.
+
 ## Install
 
 ```bash

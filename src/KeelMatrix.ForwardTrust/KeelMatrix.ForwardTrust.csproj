@@ -5,12 +5,12 @@
     <PackageId>KeelMatrix.ForwardTrust</PackageId>
     <Authors>KeelMatrix</Authors>
     <Description>Verify ASP.NET Core forwarded-header trust behavior with executable integration-test scenarios.</Description>
-    <PackageTags>aspnetcore;forwarded-headers;reverse-proxy;security;testing;x-forwarded-for;x-forwarded-proto;integration-testing</PackageTags>
+    <PackageTags>aspnetcore;forwarded-headers;reverse-proxy;security;testing;x-forwarded-for;x-forwarded-proto;integration-testing;keelmatrix-public-product;keelmatrix-primary</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/KeelMatrix/ForwardTrust</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <PackageProjectUrl>https://github.com/KeelMatrix/ForwardTrust#readme</PackageProjectUrl>
+    <PackageProjectUrl>https://github.com/KeelMatrix/ForwardTrust</PackageProjectUrl>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
     <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>

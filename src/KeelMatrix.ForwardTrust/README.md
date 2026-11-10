@@ -4,6 +4,8 @@ Verify ASP.NET Core forwarded-header trust behavior with executable integration-
 
 For contributor package and source/symbol validation, see [the development guide](https://github.com/KeelMatrix/ForwardTrust/blob/main/docs/DEV.md#source-and-symbol-validation).
 
+ForwardTrust is a public product. Its [classification manifest](https://github.com/KeelMatrix/ForwardTrust/blob/main/keelmatrix.website.json) supports automatic package discovery, including published versions that predate the classification tags. See [metadata validation](https://github.com/KeelMatrix/ForwardTrust/blob/main/docs/DEV.md#website-metadata) for contributor checks.
+
 ## Install
 
 ```bash

@@ -4,6 +4,10 @@ All notable changes to KeelMatrix.ForwardTrust are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Restores package discovery metadata through a repository classification manifest; future releases also carry matching NuGet classification tags.
+
 ## [0.1.1] - 2026-11-08
 
 ### Fixed

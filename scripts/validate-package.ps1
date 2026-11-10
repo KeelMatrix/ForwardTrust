@@ -19,6 +19,9 @@ $description = 'Verify ASP.NET Core forwarded-header trust behavior with executa
 $nupkgName = "$packageId.$ExpectedVersion.nupkg"
 $snupkgName = "$packageId.$ExpectedVersion.snupkg"
 
+& (Join-Path $PSScriptRoot 'validate-website-metadata.ps1') -RepositoryRoot $root -PackagePath @(
+    (Join-Path $packageDirectoryPath $nupkgName), (Join-Path $packageDirectoryPath $snupkgName))
+
 function Fail([string]$Message) {
     throw $Message
 }

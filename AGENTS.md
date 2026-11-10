@@ -7,6 +7,7 @@
 - `smoke/ForwardTrust.Consumer` is a non-packable PackageReference consumer used against the built package.
 - `docs/compatibility.md` records the supported net8.0 servicing facts and peer-simulation seam.
 - `scripts/` contains the package gate and changelog/version contract checks.
+- `keelmatrix.website.json` classifies the public primary package; `scripts/validate-website-metadata.ps1` checks evaluated source and archive metadata.
 - `tools/SourceLinkCheck` is a non-packable archive verifier used by the shared package gate; see `docs/DEV.md` for source and symbol checks.
 
 ## Commands
@@ -19,11 +20,14 @@ dotnet format KeelMatrix.ForwardTrust.sln --verify-no-changes
 dotnet pack src/KeelMatrix.ForwardTrust/KeelMatrix.ForwardTrust.csproj -c Release --no-build -o artifacts/packages
 pwsh -NoProfile -File scripts/test-changelog-contract.ps1 -ExpectedVersion 0.1.1 -ExpectedPackageVersion 0.1.1
 pwsh -NoProfile -File scripts/package-gate.ps1
+pwsh -NoProfile -File scripts/package-gate.ps1 -Stage WebsiteMetadata
+pwsh -NoProfile -File scripts/Test-WebsiteMetadata.ps1
 ```
 
 ## Invariants
 
 - The only shipping package is `KeelMatrix.ForwardTrust`, targeting `net8.0`.
+- Website classification is `public-product`/`primary` in the root manifest and exact lowercase NuGet sentinels. Project and repository URLs are `https://github.com/KeelMatrix/ForwardTrust`.
 - Verification is read-only with respect to the caller's application configuration; it never rewrites `ForwardedHeadersOptions`.
 - Scenario validation is complete before any request executes.
 - Accepted expectations correspond to original forwarded values in every asserted dimension; controls prove a reproducible change at an effective consumed hop, including partial chains.

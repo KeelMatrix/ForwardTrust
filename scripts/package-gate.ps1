@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot),
-    [ValidateSet('All', 'Changelog')][string]$Stage = 'All',
+    [ValidateSet('All', 'Changelog', 'WebsiteMetadata')][string]$Stage = 'All',
     [string]$ExpectedVersion = '0.1.1',
     [string]$ExpectedPackageVersion = '0.1.1',
     [ValidateSet('Auto', 'Unreleased', 'Development', 'Finalized', 'Tagged')][string]$ChangelogState = 'Auto',
@@ -14,6 +14,13 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '../build/Invoke-NestedPwsh.ps1')
 $root = (Resolve-Path $RepositoryRoot).Path
+if ($Stage -ne 'Changelog') {
+    Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'validate-website-metadata.ps1') -RepositoryRoot $root
+    if ($LASTEXITCODE -ne 0) { throw 'Website metadata source gate failed.' }
+    if ($Stage -eq 'WebsiteMetadata') { return }
+    Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Test-WebsiteMetadata.ps1') -RepositoryRoot $root
+    if ($LASTEXITCODE -ne 0) { throw 'Website metadata contract fixtures failed.' }
+}
 $changelogArguments = @('-NoProfile', '-File', (Join-Path $PSScriptRoot 'validate-changelog.ps1'),
     '-RepositoryRoot', $root, '-ExpectedVersion', $ExpectedVersion, '-ExpectedPackageVersion', $ExpectedPackageVersion, '-State', $ChangelogState)
 foreach ($name in @('ExpectedTag', 'ExpectedCommit', 'ExpectedReleaseDate')) {

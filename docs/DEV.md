@@ -29,6 +29,21 @@ The package gate checks that nested test, shipping, and smoke-project `Propertie
 
 The vulnerability audit has no build/test-only exception path: any package advisory in the JSON report fails the gate. The repeat-pack check compares normalized `.nupkg` and `.snupkg` hashes from the same Release inputs.
 
+## Website metadata
+
+The root `keelmatrix.website.json` declares schema version 1 and classifies the sole shipping package, `KeelMatrix.ForwardTrust`, as `public-product`/`primary`. The shipping `PackageTags` retain the search tags and include exactly `keelmatrix-public-product` and `keelmatrix-primary`. Both `PackageProjectUrl` and `RepositoryUrl` use `https://github.com/KeelMatrix/ForwardTrust` without a fragment, query, or trailing slash; `RepositoryType` is `git`.
+
+Published versions are immutable. The public root manifest supplies classification for older published versions without these sentinels. The tags enter the next normal release; adding classification does not require a new package version or republishing an existing version.
+
+Run the source check and isolated negative fixtures with:
+
+```powershell
+pwsh -NoProfile -File scripts/package-gate.ps1 -Stage WebsiteMetadata
+pwsh -NoProfile -File scripts/Test-WebsiteMetadata.ps1
+```
+
+`scripts/validate-website-metadata.ps1` strictly checks the manifest, evaluates Release properties through MSBuild (including inherited properties and project overrides), and compares classification, IDs, tags, and canonical URLs with both built archives when supplied. The full package gate runs the source check and negative fixtures before restore. Three-OS CI uses that gate. The release workflow also checks source metadata before restore, and `validate-package.ps1` checks the actual `.nupkg` and `.snupkg` before publication authentication. Any mismatch fails the calling gate. Fixtures cover malformed and duplicate manifest fields, sentinel absence/duplication/conflicts/casing, source/manifest/archive disagreement, primary cardinality, URL errors and child-process failure propagation through the local and workflow entry points.
+
 ## Source and symbol validation
 
 `scripts/validate-package.ps1` is the shared package-validation entry point for local development, three-OS CI, and the Linux release workflow. Its non-packable `tools/SourceLinkCheck` helper reads the DLL and portable PDB directly from the archives. Every tracked shipping C# document must retain its repository-relative path, resolve through SourceLink to the exact package commit, and match both the Git blob and local build input by SHA256. Every generated PDB document must have an embedded source whose decoded bytes match its checksum. The DLL's CodeView GUID, stamp and age must match the PDB, and its PDB checksum must match the complete PDB with the ID zeroed.
